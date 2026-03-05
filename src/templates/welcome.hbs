@@ -1,0 +1,55 @@
+<html lang='es'>
+  <head>
+    <meta charset='UTF-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+    <title>Bienvenido</title>
+    <style>
+      body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin:
+      0; padding: 0; } .container { max-width: 600px; margin: 0 auto; padding:
+      20px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px
+      12px rgba(0, 0, 0, 0.1); } h2 { color: #2c3e50; font-size: 24px;
+      margin-bottom: 16px; } p { color: #34495e; font-size: 16px; line-height:
+      1.6; margin-bottom: 12px; } a { color: #3498db; text-decoration: none;
+      font-weight: bold; } a:hover { text-decoration: underline; } .footer {
+      margin-top: 30px; font-size: 14px; color: #7f8c8d; text-align: center; }
+      .cta-button { display: inline-block; padding: 12px 24px; background-color:
+      #3498db; color: #ffffff; text-decoration: none; border-radius: 4px;
+      font-weight: bold; margin-top: 16px; } .cta-button:hover {
+      background-color: #2980b9; } .divider { margin: 20px 0; border-top: 1px
+      solid #ecf0f1; } .credentials { background-color: #f1f1f1; padding: 15px;
+      border-radius: 6px; margin-top: 20px; } .credentials p { margin: 5px 0;
+      font-family: monospace; font-size: 15px; } .footer { background-color:
+      #f0f0f0; padding: 15px; text-align: center; font-size: 14px; color: #888;
+      }
+    </style>
+  </head>
+  <body>
+    <div class='container'>
+      <h2>¡Hola, {{name}}!</h2>
+      <p>Gracias por formar parte de nuestro equipo en {{business.name}}.</p>
+      <p>Estamos emocionados de tenerte con nosotros. Aquí están tus
+        credenciales para acceder al sistema:</p>
+      <div class='divider'></div>
+      <div class='credentials'>
+        <p><strong>Usuario:</strong> {{username}}</p>
+        <p><strong>Contraseña:</strong> {{password}}</p>
+        <a href={{url}}>Sigue este enlace para iniciar sesión</a>
+      </div>
+      <div class='divider'></div>
+      <p>Recuerda cambiar tu contraseña una vez que inicies sesión.</p>
+      <div class=''></div>
+      <p>Si tienes alguna pregunta o necesitas asistencia, no dudes en ponerte
+        en contacto con nosotros.</p>
+      <p>¡Te deseamos un excelente inicio de jornada!</p>
+      <p>Atentamente,</p>
+      <p>El equipo de {{business.name}}</p>
+    </div>
+    <div class='footer'>
+      Este mensaje fue generado automáticamente. No respondas a este correo.
+      <br />
+      ©
+      {{year}}
+      {{business.name}}. Todos los derechos reservados.
+    </div>
+  </body>
+</html>

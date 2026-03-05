@@ -1,0 +1,6 @@
+export { Migration1771988015029 } from './1771988015029-migration'
+export { MenuOptionsMigration1772060000000 } from './1772060000000-menu-options-migration'
+export { ContactMigration1772145600000 } from './1772145600000-contact-migration'
+export { MenuOptionsLegacyIdsMigration1772149800000 } from './1772149800000-menu-options-legacy-ids-migration'
+export { VehicleMigration1772230000000 } from './1772230000000-vehicle-migration'
+export { ArticleMigration1772300000000 } from './1772300000000-article-migration'
