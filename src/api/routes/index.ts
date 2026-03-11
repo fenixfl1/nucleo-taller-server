@@ -8,6 +8,16 @@ import staffAccessRouter from './staff-access.routes'
 import customerRouter from './customer.routes'
 import vehicleRouter from './vehicle.routes'
 import articleRouter from './article.routes'
+import workOrderRouter from './work-order.routes'
+import inventoryMovementRouter from './inventory-movement.routes'
+import inventoryReplenishmentRouter from './inventory-replenishment.routes'
+import internalPurchaseOrderRouter from './internal-purchase-order.routes'
+import deliveryReceiptRouter from './delivery-receipt.routes'
+import workOrderStatusCatalogRouter from './work-order-status-catalog.routes'
+import workOrderServiceTypeRouter from './work-order-service-type.routes'
+import activityLogRouter from './activity-log.routes'
+import reportRouter from './report.routes'
+import dashboardRouter from './dashboard.routes'
 
 const publicRoutes: Router[] = [authRouter]
 const privateRoutes: Router[] = [
@@ -16,6 +26,16 @@ const privateRoutes: Router[] = [
   customerRouter,
   vehicleRouter,
   articleRouter,
+  workOrderRouter,
+  inventoryMovementRouter,
+  inventoryReplenishmentRouter,
+  internalPurchaseOrderRouter,
+  deliveryReceiptRouter,
+  workOrderStatusCatalogRouter,
+  workOrderServiceTypeRouter,
+  activityLogRouter,
+  reportRouter,
+  dashboardRouter,
   personRouter,
   staffAccessRouter,
 ]

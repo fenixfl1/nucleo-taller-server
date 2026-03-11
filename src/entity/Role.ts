@@ -14,10 +14,10 @@ export class Role extends BaseEntity {
   @PrimaryGeneratedColumn()
   ROLE_ID: number
 
-  @Column({ unique: true, length: 30, nullable: false })
+  @Column({ type: 'varchar', unique: true, length: 30, nullable: false })
   NAME: string
 
-  @Column({ length: 250 })
+  @Column({ type: 'text' })
   DESCRIPTION: string
 
   @OneToMany(() => Staff, (staff) => staff.ROLE)

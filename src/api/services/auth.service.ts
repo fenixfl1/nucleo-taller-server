@@ -58,6 +58,7 @@ export class AuthService extends BaseService {
     const business = await this.getBusinessInfo([
       'BUSINESS_ID',
       'ADDRESS',
+      'LOGO',
       'NAME',
       'PHONE',
       'RNC',

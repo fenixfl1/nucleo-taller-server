@@ -3,6 +3,23 @@ import { Request, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 import { asyncLocalStorage } from './storage.middleware'
 import { UNAUTHORIZED_ERROR_MESSAGE } from '@constants/messages'
+import { RequestContext, SessionInfo } from '@src/types/api.types'
+
+const normalizeRequestIp = (req: Request): string | undefined => {
+  const forwardedFor = req.headers['x-forwarded-for']
+  const forwardedIp = Array.isArray(forwardedFor)
+    ? forwardedFor[0]
+    : forwardedFor?.split(',')[0]
+
+  const rawIp =
+    forwardedIp?.trim() || req.ip || req.socket.remoteAddress || undefined
+
+  if (!rawIp) {
+    return undefined
+  }
+
+  return rawIp.replace(/^::ffff:/, '')
+}
 
 const authMiddleware = (req: Request, res: any, next: NextFunction) => {
   const token = req.headers.authorization
@@ -14,9 +31,15 @@ const authMiddleware = (req: Request, res: any, next: NextFunction) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!)
-    req['sessionInfo'] = decoded as never
-    asyncLocalStorage.run(decoded as never, () => {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as SessionInfo
+    const requestContext: RequestContext = {
+      ...decoded,
+      ip: normalizeRequestIp(req),
+      userAgent: req.get('user-agent')?.trim() || undefined,
+    }
+
+    req['sessionInfo'] = requestContext as never
+    asyncLocalStorage.run(requestContext, () => {
       next()
     })
   } catch (error) {

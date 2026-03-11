@@ -10,20 +10,20 @@ import { Staff } from './Staff'
 
 @Entity({ name: 'PASSWORD_RESET_TOKENS' })
 export class PasswordResetToken {
-  @PrimaryGeneratedColumn()
+  @PrimaryGeneratedColumn({ type: 'integer' })
   ID: number
 
   @ManyToOne(() => Staff)
   @JoinColumn({ name: 'STAFF_ID' })
   STAFF: Staff
 
-  @Column()
+  @Column({ type: 'text' })
   TOKEN: string
 
   @Column({ type: 'timestamp' })
   EXPIRES_AT: Date
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamp' })
   CREATED_AT: Date
 }
 

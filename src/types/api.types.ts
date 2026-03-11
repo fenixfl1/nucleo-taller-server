@@ -33,6 +33,11 @@ export interface SessionInfo {
   username: string
 }
 
+export interface RequestContext extends SessionInfo {
+  ip?: string
+  userAgent?: string
+}
+
 export type ParamsLocation = 'params' | 'body' | 'query'
 
 export interface QueryParam {

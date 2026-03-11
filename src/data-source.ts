@@ -3,9 +3,11 @@ import { DataSource } from 'typeorm'
 import { config } from 'dotenv'
 import * as Subscribers from './subscribers'
 import * as Migrations from './migrations'
+import * as Entities from './entity'
 
 const subscribers = Object.values(Subscribers)
 const migrations = Object.values(Migrations)
+const entities = Object.values(Entities)
 
 config({ debug: false, quiet: true })
 
@@ -19,7 +21,7 @@ export const AppDataSource = new DataSource({
   database: process.env.DB_NAME,
   synchronize: false,
   logging: false,
-  entities: ['src/entity/**/*.{ts,js}'],
+  entities,
   migrations,
   subscribers,
 })

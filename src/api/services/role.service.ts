@@ -14,8 +14,9 @@ import {
   NotFoundError,
 } from '@api/errors/http.error'
 import { Repository } from 'typeorm'
-import { paginate } from '@src/helpers/query-utils'
-import { queryBuilder } from '@src/helpers/query-builder'
+import { paginatedQuery } from '@src/helpers/query-utils'
+import { whereClauseBuilder } from '@src/helpers/where-clausure-builder'
+import { preparePaginationConditions } from '@src/helpers/prepare-pagination-conditions'
 import {
   buildPermissionMapFromMenuOptions,
   getPermissionIdFromMenuOptionId,
@@ -153,15 +154,38 @@ export class RoleService extends BaseService {
     conditions: AdvancedCondition<Role>[] = [],
     pagination: Pagination
   ): Promise<ApiResponse<RoleResponse[]>> {
-    const qb = this.roleRepository.createQueryBuilder('role')
-
-    if (conditions.length) {
-      queryBuilder(qb, conditions)
-    }
-
-    qb.orderBy('"role"."ROLE_ID"', 'DESC')
-
-    const { data, metadata } = await paginate(qb, pagination)
+    const normalizedConditions = preparePaginationConditions(conditions, [
+      'ROLE_ID',
+      'NAME',
+      'DESCRIPTION',
+    ])
+    const { whereClause, values } = whereClauseBuilder(
+      normalizedConditions as AdvancedCondition<Record<string, unknown>>[]
+    )
+    const statement = `
+      SELECT
+        "ROLE_ID",
+        "NAME",
+        "DESCRIPTION",
+        "STATE",
+        "CREATED_AT"
+      FROM (
+        SELECT
+          "ROLE_ID",
+          "NAME",
+          "DESCRIPTION",
+          "STATE",
+          "CREATED_AT"
+        FROM "ROLES"
+      ) AS "role_rows"
+      ${whereClause}
+      ORDER BY "ROLE_ID" DESC
+    `
+    const [data, metadata] = await paginatedQuery<Role>({
+      statement,
+      values,
+      pagination,
+    })
 
     const rows: RoleResponse[] = data.map((item) => ({
       ...item,

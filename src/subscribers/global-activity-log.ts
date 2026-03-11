@@ -12,7 +12,7 @@ import {
 export class GlobalActivitySubscriber implements EntitySubscriberInterface {
   async afterInsert(event: InsertEvent<any>) {
     if (event.metadata.name === 'ActivityLog') return
-    const userId = this.getUserId()
+    const { userId, ip, userAgent } = this.getRequestContext()
     if (!userId) return
 
     const { objectId, compositeId } = this.extractObjectId(event)
@@ -22,6 +22,8 @@ export class GlobalActivitySubscriber implements EntitySubscriberInterface {
     log.ACTION = 'INSERT'
     log.MODEL = event.metadata.name
     log.OBJECT_ID = objectId as never // <-- null si PK compuesta
+    log.IP = ip
+    log.USER_AGENT = userAgent
     // En CHANGES incluimos además el compositeId si existe
     log.CHANGES = { __id: compositeId ?? objectId, ...event.entity }
 
@@ -30,7 +32,7 @@ export class GlobalActivitySubscriber implements EntitySubscriberInterface {
 
   async afterUpdate(event: UpdateEvent<any>) {
     if (event.metadata.name === 'ActivityLog') return
-    const userId = this.getUserId()
+    const { userId, ip, userAgent } = this.getRequestContext()
     if (!userId) return
 
     const { objectId, compositeId } = this.extractObjectId(event)
@@ -48,6 +50,8 @@ export class GlobalActivitySubscriber implements EntitySubscriberInterface {
     log.ACTION = 'UPDATE'
     log.MODEL = event.metadata.name
     log.OBJECT_ID = objectId as never
+    log.IP = ip
+    log.USER_AGENT = userAgent
     log.CHANGES = { __id: compositeId ?? objectId, ...changes }
 
     await event.manager.getRepository(ActivityLog).save(log)
@@ -55,7 +59,7 @@ export class GlobalActivitySubscriber implements EntitySubscriberInterface {
 
   async afterRemove(event: RemoveEvent<any>) {
     if (event.metadata.name === 'ActivityLog') return
-    const userId = this.getUserId()
+    const { userId, ip, userAgent } = this.getRequestContext()
     if (!userId) return
 
     const { objectId, compositeId } = this.extractObjectId(event)
@@ -65,14 +69,24 @@ export class GlobalActivitySubscriber implements EntitySubscriberInterface {
     log.ACTION = 'DELETE'
     log.MODEL = event.metadata.name
     log.OBJECT_ID = objectId as never
+    log.IP = ip
+    log.USER_AGENT = userAgent
     log.CHANGES = { __id: compositeId ?? objectId, ...(event.entity ?? {}) }
 
     await event.manager.getRepository(ActivityLog).save(log)
   }
 
-  private getUserId(): number | null {
+  private getRequestContext(): {
+    userId: number | null
+    ip?: string
+    userAgent?: string
+  } {
     const storage = asyncLocalStorage.getStore()
-    return storage?.userId ?? null
+    return {
+      userId: storage?.userId ?? null,
+      ip: storage?.ip,
+      userAgent: storage?.userAgent,
+    }
   }
 
   /**

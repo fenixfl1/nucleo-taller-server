@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt'
-import { Repository, SelectQueryBuilder } from 'typeorm'
+import { Repository } from 'typeorm'
 import { BaseService, CatchServiceError } from './base.service'
 import { Role } from '@entity/Role'
 import { Person } from '@entity/Person'
@@ -17,7 +17,9 @@ import {
   NotFoundError,
   UnAuthorizedError,
 } from '@api/errors/http.error'
-import { paginate } from '@src/helpers/query-utils'
+import { paginatedQuery } from '@src/helpers/query-utils'
+import { whereClauseBuilder } from '@src/helpers/where-clausure-builder'
+import { preparePaginationConditions } from '@src/helpers/prepare-pagination-conditions'
 import {
   ContactInput,
   contactsFromLegacyFields,
@@ -94,6 +96,23 @@ export type StaffAccessResponse = {
   ADDRESS: string
   STAFF_ID: number
   ROLE_ID: number
+}
+
+type StaffAccessPaginationRow = {
+  USER_ID: number | string
+  USERNAME: string | null
+  NAME: string | null
+  LAST_NAME: string | null
+  AVATAR: string | null
+  ROLES: string | null
+  CREATED_AT: Date | string | null
+  STATE: string | null
+  IDENTITY_DOCUMENT: string | null
+  BIRTH_DATE: Date | string | null
+  GENDER: string | null
+  ADDRESS: string | null
+  PERSON_ID: number | string
+  ROLE_ID: number | string
 }
 
 export class StaffService extends BaseService {
@@ -333,22 +352,74 @@ export class StaffService extends BaseService {
     conditions: AdvancedCondition<Staff>[] = [],
     pagination: Pagination
   ): Promise<ApiResponse<StaffAccessResponse[]>> {
-    const qb = this.staffRepository
-      .createQueryBuilder('u')
-      .innerJoinAndSelect('u.PERSON', 'p')
-      .leftJoinAndSelect('u.ROLE', 'r')
+    const normalizedConditions = preparePaginationConditions(conditions, [
+      'USER_ID',
+      'USERNAME',
+      'NAME',
+      'LAST_NAME',
+      'IDENTITY_DOCUMENT',
+      'ROLES',
+      'STATE',
+    ])
+    const { whereClause, values } = whereClauseBuilder(
+      normalizedConditions as AdvancedCondition<Record<string, unknown>>[]
+    )
+    const statement = `
+      SELECT
+        "USER_ID",
+        "USERNAME",
+        "NAME",
+        "LAST_NAME",
+        "AVATAR",
+        "ROLES",
+        "CREATED_AT",
+        "STATE",
+        "IDENTITY_DOCUMENT",
+        "BIRTH_DATE",
+        "GENDER",
+        "ADDRESS",
+        "PERSON_ID",
+        "ROLE_ID"
+      FROM (
+        SELECT
+          "u"."STAFF_ID" AS "USER_ID",
+          "u"."USERNAME" AS "USERNAME",
+          "u"."AVATAR" AS "AVATAR",
+          "u"."STATE" AS "STATE",
+          "u"."CREATED_AT" AS "CREATED_AT",
+          "u"."ROLE_ID" AS "ROLE_ID",
+          "p"."PERSON_ID" AS "PERSON_ID",
+          "p"."NAME" AS "NAME",
+          "p"."LAST_NAME" AS "LAST_NAME",
+          "p"."IDENTITY_DOCUMENT" AS "IDENTITY_DOCUMENT",
+          "p"."BIRTH_DATE" AS "BIRTH_DATE",
+          "p"."GENDER" AS "GENDER",
+          "p"."ADDRESS" AS "ADDRESS",
+          "r"."NAME" AS "ROLES"
+        FROM "STAFF" "u"
+        INNER JOIN "PERSON" "p"
+          ON "p"."PERSON_ID" = "u"."PERSON_ID"
+        LEFT JOIN "ROLES" "r"
+          ON "r"."ROLE_ID" = "u"."ROLE_ID"
+      ) AS "staff_access_rows"
+      ${whereClause}
+      ORDER BY "USER_ID" DESC
+    `
 
-    if (conditions.length) {
-      this.applyAccessConditions(qb, conditions)
-    }
+    const [data, metadata] = await paginatedQuery<StaffAccessPaginationRow>({
+      statement,
+      values,
+      pagination,
+    })
 
-    const { data, metadata } = await paginate(qb, pagination)
-
-    const personIds = data.map((item) => item.PERSON?.PERSON_ID).filter(Boolean)
+    const personIds = data.map((item) => Number(item.PERSON_ID)).filter(Boolean)
     const contactsByPerson = await this.getContactsByPersonIds(personIds)
 
     const rows = data.map((item) =>
-      this.mapAccess(item, contactsByPerson.get(item.PERSON?.PERSON_ID) || [])
+      this.mapPaginatedAccess(
+        item,
+        contactsByPerson.get(Number(item.PERSON_ID)) || []
+      )
     )
 
     return this.success({ data: rows, metadata })
@@ -578,105 +649,49 @@ export class StaffService extends BaseService {
     }
   }
 
-  private applyAccessConditions(
-    qb: SelectQueryBuilder<Staff>,
-    conditions: AdvancedCondition<Staff>[]
-  ): void {
-    conditions.forEach((condition, index) => {
-      const operator = (condition.operator || '').toUpperCase()
-      const paramName = `param_${index}`
-
-      if (String(condition.field).toUpperCase() === 'FILTER') {
-        const search = `%${condition.value}%`
-        qb.andWhere(
-          `
-            UPPER(unaccent("u"."USERNAME"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("p"."NAME"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("p"."LAST_NAME"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("p"."IDENTITY_DOCUMENT"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("r"."NAME"::text)) LIKE UPPER(:${paramName})
-          `,
-          { [paramName]: search }
-        )
-        return
-      }
-
-      const fields = Array.isArray(condition.field)
-        ? condition.field.map((item) => String(item))
-        : [String(condition.field)]
-      const columns = fields.map((field) => this.resolveAccessColumn(field))
-      const expression =
-        columns.length > 1 ? columns.join(` || ' ' || `) : columns[0]
-
-      switch (operator) {
-        case '=':
-        case '!=':
-        case '<':
-        case '<=':
-        case '>':
-        case '>=':
-          qb.andWhere(`${expression} ${operator} :${paramName}`, {
-            [paramName]: condition.value,
-          })
-          break
-        case 'LIKE':
-          qb.andWhere(
-            `UPPER(unaccent(${expression}::text)) LIKE UPPER(:${paramName})`,
-            {
-              [paramName]: `%${condition.value}%`,
-            }
-          )
-          break
-        case 'IN':
-        case 'NOT IN':
-          if (!Array.isArray(condition.value)) {
-            throw new BadRequestError(
-              `El operador '${operator}' requiere un arreglo de valores.`
-            )
-          }
-          qb.andWhere(`${columns[0]} ${operator} (:...${paramName})`, {
-            [paramName]: condition.value,
-          })
-          break
-        case 'BETWEEN':
-          if (!Array.isArray(condition.value) || condition.value.length !== 2) {
-            throw new BadRequestError(
-              "El operador 'BETWEEN' requiere exactamente dos valores."
-            )
-          }
-          qb.andWhere(
-            `${columns[0]} BETWEEN :${paramName}_start AND :${paramName}_end`,
-            {
-              [`${paramName}_start`]: condition.value[0],
-              [`${paramName}_end`]: condition.value[1],
-            }
-          )
-          break
-        case 'IS NULL':
-          qb.andWhere(`${columns[0]} IS NULL`)
-          break
-        case 'IS NOT NULL':
-          qb.andWhere(`${columns[0]} IS NOT NULL`)
-          break
-        default:
-          throw new BadRequestError(
-            `Operador '${condition.operator}' no soportado.`
-          )
-      }
-    })
+  private mapPaginatedAccess(
+    staff: StaffAccessPaginationRow,
+    contacts: Contact[] = []
+  ): StaffAccessResponse {
+    return {
+      USER_ID: Number(staff.USER_ID),
+      USERNAME: staff.USERNAME || '',
+      NAME: staff.NAME || '',
+      LAST_NAME: staff.LAST_NAME || '',
+      AVATAR: staff.AVATAR || '',
+      IS_ACTIVE: staff.STATE === 'A',
+      ROLES: staff.ROLES || '',
+      CREATED_AT: this.toIsoString(staff.CREATED_AT),
+      STATE: staff.STATE || 'A',
+      IDENTITY_DOCUMENT: staff.IDENTITY_DOCUMENT || '',
+      EMAIL: getPrimaryContactValue(contacts, ContactType.EMAIL),
+      PHONE:
+        getPrimaryContactValue(contacts, ContactType.PHONE) ||
+        getPrimaryContactValue(contacts, ContactType.WHATSAPP),
+      CONTACTS: contacts.map((contact) => ({
+        CONTACT_ID: contact.CONTACT_ID,
+        TYPE: contact.TYPE,
+        USAGE: contact.USAGE,
+        VALUE: contact.VALUE,
+        IS_PRIMARY: Boolean(contact.IS_PRIMARY),
+      })),
+      BIRTH_DATE: this.toIsoString(staff.BIRTH_DATE),
+      GENDER: staff.GENDER || '',
+      ADDRESS: staff.ADDRESS || '',
+      STAFF_ID: Number(staff.PERSON_ID),
+      ROLE_ID: Number(staff.ROLE_ID),
+    }
   }
 
-  private resolveAccessColumn(field: string): string {
-    const normalized = field.toUpperCase()
+  private toIsoString(value?: Date | string | null): string {
+    if (!value) return ''
 
-    if (normalized === 'USER_ID') return '"u"."STAFF_ID"'
-    if (normalized === 'STAFF_ID') return '"p"."PERSON_ID"'
-    if (normalized === 'USERNAME') return '"u"."USERNAME"'
-    if (normalized === 'ROLE_ID') return '"u"."ROLE_ID"'
-    if (normalized === 'STATE') return '"u"."STATE"'
-    if (normalized === 'ROLES') return '"r"."NAME"'
+    if (typeof value === 'string') {
+      const date = new Date(value)
+      return Number.isNaN(date.getTime()) ? value : date.toISOString()
+    }
 
-    return `"p"."${normalized}"`
+    return value.toISOString()
   }
 
   private async getContactsByPersonIds(

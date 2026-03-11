@@ -3,11 +3,13 @@ import { validateSchema } from '@api/middlewares/validator-middleware'
 import { advancedConditionSchema } from '@api/validators/condition.schema'
 import {
   articleIdParamsSchema,
+  compatibleArticleByVehicleParamsSchema,
   createArticleSchema,
   updateArticleSchema,
 } from '@api/validators/article.schema'
 import {
   createArticleController,
+  getCompatibleArticlesByVehicleController,
   getArticlePaginationController,
   getOneArticleController,
   updateArticleController,
@@ -15,6 +17,7 @@ import {
 import {
   PATH_ARTICLE,
   PATH_ARTICLE_BY_ID,
+  PATH_ARTICLE_COMPATIBLE_BY_VEHICLE,
   PATH_ARTICLE_PAGINATION,
 } from '@src/constants/routes'
 
@@ -34,6 +37,11 @@ articleRouter.post(
   PATH_ARTICLE_PAGINATION,
   validateSchema(advancedConditionSchema),
   getArticlePaginationController
+)
+articleRouter.get(
+  PATH_ARTICLE_COMPATIBLE_BY_VEHICLE,
+  validateSchema(compatibleArticleByVehicleParamsSchema, 'params'),
+  getCompatibleArticlesByVehicleController
 )
 articleRouter.get(
   PATH_ARTICLE_BY_ID,

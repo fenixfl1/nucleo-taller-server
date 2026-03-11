@@ -19,26 +19,27 @@ const corsOptions = {
 }
 
 async function init() {
-  try {
-    const app = express()
+  const app = express()
 
-    app.use(cors(corsOptions))
-    app.use(cookieParser())
-    app.use(bodyParser.json({ limit: '50mb' }))
-    app.use(express.urlencoded({ extended: true }))
-    app.use(routes)
-    app.use(errorHandler)
+  app.use(cors(corsOptions))
+  app.use(cookieParser())
+  app.use(bodyParser.json({ limit: '50mb' }))
+  app.use(express.urlencoded({ extended: true }))
+  app.use(routes)
+  app.use(errorHandler)
 
-    await AppDataSource.initialize()
+  await AppDataSource.initialize()
 
-    const server = http.createServer(app)
-    initSocket(server)
-    server.listen(process.env.APP_PORT)
+  const server = http.createServer(app)
+  initSocket(server)
+  server.listen(process.env.APP_PORT)
 
-    serverMessage(`${(performance.now() - start).toFixed(2)} ms`)
-  } catch (error) {
-    console.error(' 💥 Something went wrong: ', error)
-  }
+  serverMessage(`${(performance.now() - start).toFixed(2)} ms`)
 }
 
-init().then(async () => await startConsumer())
+init()
+  .then(async () => await startConsumer())
+  .catch((error) => {
+    console.error(' 💥 Something went wrong: ', error)
+    process.exit(1)
+  })

@@ -4,18 +4,24 @@
   "main": "index.ts",
   "scripts": {
     "dev": "nodemon --watch src --exec ts-node -r tsconfig-paths/register src/index.ts",
-    "build": "tsc --noEmit",
+    "build": "ts-node scripts/esbuild.ts",
+    "prebuild": "node scripts/build.ts",
     "test": "jest --config jest.config.ts",
     "test:watch": "npm run test -- --watch",
     "test:coverage": "npm run test -- --coverage",
-    "start": "node dist/index.js",
+    "start": "node build/app.cjs",
+    "pm2:start": "pm2 start ecosystem.config.cjs --env production",
+    "pm2:reload": "pm2 startOrReload ecosystem.config.cjs --env production",
+    "pm2:delete": "pm2 delete ecosystem.config.cjs",
     "typeorm": "node --require ts-node/register --require tsconfig-paths/register ./node_modules/typeorm/cli.js",
     "migration": "npm run typeorm -- migration:generate -d src/data-source.ts src/migrations/migration",
     "migration:create": "npm run typeorm -- migration:create src/migrations/PostRefactoring",
     "migration:run": "npm run typeorm -- migration:run -d src/data-source.ts",
     "migration:fake": "npm run typeorm -- migration:run -d src/data-source.ts --fake",
     "migration:revert": "npm run typeorm -- migration:revert -d src/data-source.ts",
-    "seed:admin": "node --require ts-node/register --require tsconfig-paths/register src/seeds/bootstrap-admin.seed.ts"
+    "seed:admin": "node --require ts-node/register --require tsconfig-paths/register src/seeds/bootstrap-admin.seed.ts",
+    "seed:excel": "node --require ts-node/register --require tsconfig-paths/register src/seeds/import-excel.seed.ts",
+    "seed:operational": "node --require ts-node/register --require tsconfig-paths/register src/seeds/operational.seed.ts"
   },
   "keywords": [],
   "author": "",
@@ -37,6 +43,7 @@
     "cors": "^2.8.6",
     "cryp": "^0.1.1",
     "crypto": "^1.0.1",
+    "esbuild": "^0.27.3",
     "express": "^5.2.1",
     "googleapis": "^171.4.0",
     "handlebars": "^4.7.8",
@@ -52,7 +59,7 @@
     "typeorm": "^0.3.28"
   },
   "devDependencies": {
-    "@types/node": "^25.3.0",
+    "@types/node": "^25.4.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }

@@ -1,4 +1,4 @@
-import { Repository, SelectQueryBuilder } from 'typeorm'
+import { Repository } from 'typeorm'
 import { BaseService, CatchServiceError } from './base.service'
 import { Vehicle } from '@entity/Vehicle'
 import { Person } from '@entity/Person'
@@ -13,7 +13,9 @@ import {
   DbConflictError,
   NotFoundError,
 } from '@api/errors/http.error'
-import { paginate } from '@src/helpers/query-utils'
+import { paginatedQuery } from '@src/helpers/query-utils'
+import { whereClauseBuilder } from '@src/helpers/where-clausure-builder'
+import { preparePaginationConditions } from '@src/helpers/prepare-pagination-conditions'
 
 type VehiclePayload = {
   VEHICLE_ID?: number
@@ -43,6 +45,23 @@ export type VehicleResponse = {
   NOTES: string
   STATE: string
   CREATED_AT?: Date | null
+}
+
+type VehiclePaginationRow = {
+  VEHICLE_ID: number | string
+  CUSTOMER_ID: number | string
+  CUSTOMER_NAME: string | null
+  IDENTITY_DOCUMENT: string | null
+  PLATE: string | null
+  VIN: string | null
+  BRAND: string | null
+  MODEL: string | null
+  YEAR: number | string | null
+  COLOR: string | null
+  ENGINE: string | null
+  NOTES: string | null
+  STATE: string | null
+  CREATED_AT: Date | null
 }
 
 export class VehicleService extends BaseService {
@@ -169,20 +188,65 @@ export class VehicleService extends BaseService {
     pagination: Pagination
   ): Promise<ApiResponse<VehicleResponse[]>> {
     const businessId = (await this.getBusinessInfo(['BUSINESS_ID'])).BUSINESS_ID
+    const normalizedConditions = preparePaginationConditions(conditions, [
+      'PLATE',
+      'VIN',
+      'BRAND',
+      'MODEL',
+      'COLOR',
+      'ENGINE',
+      'CUSTOMER_NAME',
+      'IDENTITY_DOCUMENT',
+    ])
+    const { whereClause, values } = whereClauseBuilder(
+      normalizedConditions as AdvancedCondition<Record<string, unknown>>[]
+    )
+    const statement = `
+      SELECT
+        "VEHICLE_ID",
+        "CUSTOMER_ID",
+        "CUSTOMER_NAME",
+        "PLATE",
+        "VIN",
+        "BRAND",
+        "MODEL",
+        "YEAR",
+        "COLOR",
+        "ENGINE",
+        "NOTES",
+        "STATE",
+        "CREATED_AT"
+      FROM (
+        SELECT
+          "v"."VEHICLE_ID" AS "VEHICLE_ID",
+          "v"."CUSTOMER_ID" AS "CUSTOMER_ID",
+          TRIM(CONCAT(COALESCE("c"."NAME", ''), ' ', COALESCE("c"."LAST_NAME", ''))) AS "CUSTOMER_NAME",
+          "c"."IDENTITY_DOCUMENT" AS "IDENTITY_DOCUMENT",
+          "v"."PLATE" AS "PLATE",
+          "v"."VIN" AS "VIN",
+          "v"."BRAND" AS "BRAND",
+          "v"."MODEL" AS "MODEL",
+          "v"."YEAR" AS "YEAR",
+          "v"."COLOR" AS "COLOR",
+          "v"."ENGINE" AS "ENGINE",
+          "v"."NOTES" AS "NOTES",
+          "v"."STATE" AS "STATE",
+          "v"."CREATED_AT" AS "CREATED_AT"
+        FROM "VEHICLE" "v"
+        INNER JOIN "PERSON" "c"
+          ON "c"."PERSON_ID" = "v"."CUSTOMER_ID"
+        WHERE "v"."BUSINESS_ID" = ${Number(businessId)}
+      ) AS "vehicle_rows"
+      ${whereClause}
+      ORDER BY "VEHICLE_ID" DESC
+    `
 
-    const qb = this.vehicleRepository
-      .createQueryBuilder('v')
-      .innerJoinAndSelect('v.CUSTOMER', 'c')
-      .where('v.BUSINESS_ID = :businessId', { businessId })
-
-    if (conditions.length) {
-      this.applyConditions(qb, conditions)
-    }
-
-    qb.orderBy('"v"."VEHICLE_ID"', 'DESC')
-
-    const { data, metadata } = await paginate(qb, pagination)
-    const rows = data.map((item) => this.mapVehicle(item))
+    const [data, metadata] = await paginatedQuery<VehiclePaginationRow>({
+      statement,
+      values,
+      pagination,
+    })
+    const rows = data.map((item) => this.mapPaginatedVehicleRow(item))
 
     return this.success({ data: rows, metadata })
   }
@@ -220,6 +284,27 @@ export class VehicleService extends BaseService {
       NOTES: vehicle.NOTES || '',
       STATE: vehicle.STATE || 'A',
       CREATED_AT: vehicle.CREATED_AT,
+    }
+  }
+
+  private mapPaginatedVehicleRow(vehicle: VehiclePaginationRow): VehicleResponse {
+    return {
+      VEHICLE_ID: Number(vehicle.VEHICLE_ID),
+      CUSTOMER_ID: Number(vehicle.CUSTOMER_ID),
+      CUSTOMER_NAME: vehicle.CUSTOMER_NAME || '',
+      PLATE: vehicle.PLATE || '',
+      VIN: vehicle.VIN || '',
+      BRAND: vehicle.BRAND || '',
+      MODEL: vehicle.MODEL || '',
+      YEAR:
+        vehicle.YEAR === null || vehicle.YEAR === undefined
+          ? null
+          : Number(vehicle.YEAR),
+      COLOR: vehicle.COLOR || '',
+      ENGINE: vehicle.ENGINE || '',
+      NOTES: vehicle.NOTES || '',
+      STATE: vehicle.STATE || 'A',
+      CREATED_AT: vehicle.CREATED_AT || null,
     }
   }
 
@@ -310,105 +395,4 @@ export class VehicleService extends BaseService {
     }
   }
 
-  private applyConditions(
-    qb: SelectQueryBuilder<Vehicle>,
-    conditions: AdvancedCondition<Vehicle>[]
-  ): void {
-    conditions.forEach((condition, index) => {
-      const operator = (condition.operator || '').toUpperCase()
-      const paramName = `param_${index}`
-
-      if (String(condition.field).toUpperCase() === 'FILTER') {
-        const search = `%${condition.value}%`
-        qb.andWhere(
-          `
-            UPPER(unaccent("v"."PLATE"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("v"."VIN"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("v"."BRAND"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("v"."MODEL"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("v"."COLOR"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("v"."ENGINE"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("c"."NAME"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("c"."LAST_NAME"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("c"."IDENTITY_DOCUMENT"::text)) LIKE UPPER(:${paramName})
-          `,
-          { [paramName]: search }
-        )
-        return
-      }
-
-      const fields = Array.isArray(condition.field)
-        ? condition.field.map((item) => String(item))
-        : [String(condition.field)]
-      const columns = fields.map((field) => this.resolveColumn(field))
-      const expression =
-        columns.length > 1 ? columns.join(` || ' ' || `) : columns[0]
-
-      switch (operator) {
-        case '=':
-        case '!=':
-        case '<':
-        case '<=':
-        case '>':
-        case '>=':
-          qb.andWhere(`${expression} ${operator} :${paramName}`, {
-            [paramName]: condition.value,
-          })
-          break
-        case 'LIKE':
-          qb.andWhere(
-            `UPPER(unaccent(${expression}::text)) LIKE UPPER(:${paramName})`,
-            {
-              [paramName]: `%${condition.value}%`,
-            }
-          )
-          break
-        case 'IN':
-        case 'NOT IN':
-          if (!Array.isArray(condition.value)) {
-            throw new BadRequestError(
-              `El operador '${operator}' requiere un arreglo de valores.`
-            )
-          }
-          qb.andWhere(`${columns[0]} ${operator} (:...${paramName})`, {
-            [paramName]: condition.value,
-          })
-          break
-        case 'BETWEEN':
-          if (!Array.isArray(condition.value) || condition.value.length !== 2) {
-            throw new BadRequestError(
-              "El operador 'BETWEEN' requiere exactamente dos valores."
-            )
-          }
-          qb.andWhere(
-            `${columns[0]} BETWEEN :${paramName}_start AND :${paramName}_end`,
-            {
-              [`${paramName}_start`]: condition.value[0],
-              [`${paramName}_end`]: condition.value[1],
-            }
-          )
-          break
-        case 'IS NULL':
-          qb.andWhere(`${columns[0]} IS NULL`)
-          break
-        case 'IS NOT NULL':
-          qb.andWhere(`${columns[0]} IS NOT NULL`)
-          break
-        default:
-          throw new BadRequestError(
-            `Operador '${condition.operator}' no soportado.`
-          )
-      }
-    })
-  }
-
-  private resolveColumn(field: string): string {
-    const normalized = field.toUpperCase()
-
-    if (normalized === 'CUSTOMER_ID') return '"v"."CUSTOMER_ID"'
-    if (normalized === 'CUSTOMER_NAME')
-      return `"c"."NAME" || ' ' || COALESCE("c"."LAST_NAME", '')`
-
-    return `"v"."${normalized}"`
-  }
 }

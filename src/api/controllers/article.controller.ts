@@ -67,3 +67,17 @@ export const getArticlePaginationController = async (
     next(error)
   }
 }
+
+export const getCompatibleArticlesByVehicleController = async (
+  request: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const vehicleId = Number(request.params.vehicleId)
+    const result = await articleService.getCompatibleByVehicle(vehicleId)
+    return sendResponse(res, result)
+  } catch (error) {
+    next(error)
+  }
+}

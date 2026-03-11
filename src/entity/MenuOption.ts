@@ -39,7 +39,7 @@ export class MenuOption extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   ICON?: string
 
-  @Column({ nullable: false })
+  @Column({ nullable: false, type: 'integer' })
   ORDER: number
 
   @Column({ type: 'varchar', length: 50, nullable: true })

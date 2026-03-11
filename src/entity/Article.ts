@@ -4,10 +4,12 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm'
 import { BaseEntity } from './BaseEntity'
 import Business from './Business'
+import { ArticleCompatibility } from './ArticleCompatibility'
 
 @Entity({ name: 'ARTICLE' })
 @Index('IDX_ARTICLE_NAME', ['NAME'])
@@ -52,4 +54,12 @@ export class Article extends BaseEntity {
   @ManyToOne(() => Business, { nullable: false })
   @JoinColumn({ name: 'BUSINESS_ID' })
   BUSINESS: Business
+
+  @OneToMany(
+    () => ArticleCompatibility,
+    (compatibility) => compatibility.ARTICLE
+  )
+  COMPATIBILITIES: ArticleCompatibility[]
+
+  COMPATIBILITY_COUNT?: number
 }

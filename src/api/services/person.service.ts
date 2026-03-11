@@ -1,4 +1,4 @@
-import { Repository, SelectQueryBuilder } from 'typeorm'
+import { Repository } from 'typeorm'
 import { BaseService, CatchServiceError } from './base.service'
 import { Person } from '@entity/Person'
 import { Staff } from '@entity/Staff'
@@ -14,7 +14,9 @@ import {
   DbConflictError,
   NotFoundError,
 } from '@api/errors/http.error'
-import { paginate } from '@src/helpers/query-utils'
+import { paginatedQuery } from '@src/helpers/query-utils'
+import { whereClauseBuilder } from '@src/helpers/where-clausure-builder'
+import { preparePaginationConditions } from '@src/helpers/prepare-pagination-conditions'
 import {
   ContactInput,
   contactsFromLegacyFields,
@@ -67,6 +69,19 @@ export type IdentityDocumentValidationResult = {
   identityDocument: string
   isValidFormat: boolean
   isInUse: boolean
+}
+
+type PersonPaginationRow = {
+  PERSON_ID: number
+  NAME: string
+  LAST_NAME: string | null
+  IDENTITY_DOCUMENT: string | null
+  BIRTH_DATE: Date | null
+  GENDER: string | null
+  ADDRESS: string | null
+  STATE: string | null
+  CREATED_AT: Date | null
+  USER_ID: number | null
 }
 
 export class PersonService extends BaseService {
@@ -193,23 +208,62 @@ export class PersonService extends BaseService {
     conditions: AdvancedCondition<Person>[] = [],
     pagination: Pagination
   ): Promise<ApiResponse<PersonResponse[]>> {
-    const qb = this.personRepository
-      .createQueryBuilder('p')
-      .leftJoinAndSelect('p.STAFF', 'u')
+    const normalizedConditions = preparePaginationConditions(conditions, [
+      'NAME',
+      'LAST_NAME',
+      'IDENTITY_DOCUMENT',
+      'ADDRESS',
+      'USERNAME',
+    ])
+    const { whereClause, values } = whereClauseBuilder(
+      normalizedConditions as AdvancedCondition<Record<string, unknown>>[]
+    )
+    const statement = `
+      SELECT
+        "PERSON_ID",
+        "NAME",
+        "LAST_NAME",
+        "IDENTITY_DOCUMENT",
+        "BIRTH_DATE",
+        "GENDER",
+        "ADDRESS",
+        "STATE",
+        "CREATED_AT",
+        "USER_ID"
+      FROM (
+        SELECT
+          "p"."PERSON_ID" AS "PERSON_ID",
+          "p"."BUSINESS_ID" AS "BUSINESS_ID",
+          "p"."NAME" AS "NAME",
+          "p"."LAST_NAME" AS "LAST_NAME",
+          "p"."IDENTITY_DOCUMENT" AS "IDENTITY_DOCUMENT",
+          "p"."BIRTH_DATE" AS "BIRTH_DATE",
+          "p"."GENDER" AS "GENDER",
+          "p"."ADDRESS" AS "ADDRESS",
+          "p"."STATE" AS "STATE",
+          "p"."CREATED_AT" AS "CREATED_AT",
+          "u"."STAFF_ID" AS "USER_ID",
+          "u"."USERNAME" AS "USERNAME",
+          "u"."ROLE_ID" AS "ROLE_ID"
+        FROM "PERSON" "p"
+        LEFT JOIN "STAFF" "u"
+          ON "u"."PERSON_ID" = "p"."PERSON_ID"
+      ) AS "person_rows"
+      ${whereClause}
+      ORDER BY "PERSON_ID" DESC
+    `
 
-    if (conditions.length) {
-      this.applyConditions(qb, conditions)
-    }
-
-    qb.orderBy('"p"."PERSON_ID"', 'DESC')
-
-    const { data, metadata } = await paginate(qb, pagination)
+    const [data, metadata] = await paginatedQuery<PersonPaginationRow>({
+      statement,
+      values,
+      pagination,
+    })
 
     const personIds = data.map((item) => item.PERSON_ID)
     const contactsByPerson = await this.getContactsByPersonIds(personIds)
 
     const rows = data.map((person) =>
-      this.mapPersonWithAccess(person, contactsByPerson.get(person.PERSON_ID) || [])
+      this.mapPaginatedRow(person, contactsByPerson.get(person.PERSON_ID) || [])
     )
 
     return this.success({ data: rows, metadata })
@@ -280,88 +334,34 @@ export class PersonService extends BaseService {
     }
   }
 
-  private applyConditions(
-    qb: SelectQueryBuilder<Person>,
-    conditions: AdvancedCondition<Person>[]
-  ): void {
-    conditions.forEach((condition, index) => {
-      const operator = (condition.operator || '').toUpperCase()
-      const paramName = `param_${index}`
-      const fields = Array.isArray(condition.field)
-        ? condition.field.map((item) => String(item))
-        : [String(condition.field)]
-      const columns = fields.map((field) => this.resolveColumn(field))
-      const expression =
-        columns.length > 1 ? columns.join(` || ' ' || `) : columns[0]
-
-      switch (operator) {
-        case '=':
-        case '!=':
-        case '<':
-        case '<=':
-        case '>':
-        case '>=':
-          qb.andWhere(`${expression} ${operator} :${paramName}`, {
-            [paramName]: condition.value,
-          })
-          break
-        case 'LIKE':
-          qb.andWhere(
-            `UPPER(unaccent(${expression}::text)) LIKE UPPER(:${paramName})`,
-            {
-              [paramName]: `%${condition.value}%`,
-            }
-          )
-          break
-        case 'IN':
-        case 'NOT IN':
-          if (!Array.isArray(condition.value)) {
-            throw new BadRequestError(
-              `El operador '${operator}' requiere un arreglo de valores.`
-            )
-          }
-          qb.andWhere(`${columns[0]} ${operator} (:...${paramName})`, {
-            [paramName]: condition.value,
-          })
-          break
-        case 'BETWEEN':
-          if (!Array.isArray(condition.value) || condition.value.length !== 2) {
-            throw new BadRequestError(
-              "El operador 'BETWEEN' requiere exactamente dos valores."
-            )
-          }
-          qb.andWhere(
-            `${columns[0]} BETWEEN :${paramName}_start AND :${paramName}_end`,
-            {
-              [`${paramName}_start`]: condition.value[0],
-              [`${paramName}_end`]: condition.value[1],
-            }
-          )
-          break
-        case 'IS NULL':
-          qb.andWhere(`${columns[0]} IS NULL`)
-          break
-        case 'IS NOT NULL':
-          qb.andWhere(`${columns[0]} IS NOT NULL`)
-          break
-        default:
-          throw new BadRequestError(
-            `Operador '${condition.operator}' no soportado.`
-          )
-      }
-    })
-  }
-
-  private resolveColumn(field: string): string {
-    const normalized = field.toUpperCase()
-
-    if (normalized === 'PERSON_ID') return '"p"."PERSON_ID"'
-    if (normalized === 'STAFF_ID') return '"p"."PERSON_ID"'
-    if (normalized === 'USER_ID') return '"u"."STAFF_ID"'
-    if (normalized === 'USERNAME') return '"u"."USERNAME"'
-    if (normalized === 'ROLE_ID') return '"u"."ROLE_ID"'
-
-    return `"p"."${normalized}"`
+  private mapPaginatedRow(
+    person: PersonPaginationRow,
+    contacts: Contact[] = []
+  ): PersonResponse {
+    return {
+      PERSON_ID: Number(person.PERSON_ID),
+      STAFF_ID: Number(person.PERSON_ID),
+      NAME: person.NAME || '',
+      LAST_NAME: person.LAST_NAME || '',
+      IDENTITY_DOCUMENT: person.IDENTITY_DOCUMENT || '',
+      BIRTH_DATE: person.BIRTH_DATE || null,
+      GENDER: person.GENDER || '',
+      ADDRESS: person.ADDRESS || '',
+      EMAIL: getPrimaryContactValue(contacts, ContactType.EMAIL),
+      PHONE:
+        getPrimaryContactValue(contacts, ContactType.PHONE) ||
+        getPrimaryContactValue(contacts, ContactType.WHATSAPP),
+      CONTACTS: contacts.map((contact) => ({
+        CONTACT_ID: contact.CONTACT_ID,
+        TYPE: contact.TYPE,
+        USAGE: contact.USAGE,
+        VALUE: contact.VALUE,
+        IS_PRIMARY: Boolean(contact.IS_PRIMARY),
+      })),
+      USER_ID: person.USER_ID ? Number(person.USER_ID) : null,
+      STATE: person.STATE || 'A',
+      CREATED_AT: person.CREATED_AT || null,
+    }
   }
 
   private normalizeDate(value?: Date | string | null): Date | null {

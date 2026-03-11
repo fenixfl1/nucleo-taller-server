@@ -1,6 +1,8 @@
-import { Repository, SelectQueryBuilder } from 'typeorm'
+import { Repository } from 'typeorm'
 import { BaseService, CatchServiceError } from './base.service'
 import { Article } from '@entity/Article'
+import { ArticleCompatibility } from '@entity/ArticleCompatibility'
+import { Vehicle } from '@entity/Vehicle'
 import {
   AdvancedCondition,
   ApiResponse,
@@ -12,7 +14,9 @@ import {
   DbConflictError,
   NotFoundError,
 } from '@api/errors/http.error'
-import { paginate } from '@src/helpers/query-utils'
+import { paginatedQuery } from '@src/helpers/query-utils'
+import { whereClauseBuilder } from '@src/helpers/where-clausure-builder'
+import { preparePaginationConditions } from '@src/helpers/prepare-pagination-conditions'
 
 type ArticlePayload = {
   ARTICLE_ID?: number
@@ -26,7 +30,25 @@ type ArticlePayload = {
   CURRENT_STOCK?: number | null
   COST_REFERENCE?: number | null
   DESCRIPTION?: string | null
+  COMPATIBILITIES?: Array<{
+    BRAND: string
+    MODEL: string
+    YEAR_FROM?: number | null
+    YEAR_TO?: number | null
+    ENGINE?: string | null
+    NOTES?: string | null
+  }>
   STATE?: string
+}
+
+type ArticleCompatibilityResponse = {
+  ARTICLE_COMPATIBILITY_ID: number
+  BRAND: string
+  MODEL: string
+  YEAR_FROM: number | null
+  YEAR_TO: number | null
+  ENGINE: string
+  NOTES: string
 }
 
 export type ArticleResponse = {
@@ -41,8 +63,27 @@ export type ArticleResponse = {
   CURRENT_STOCK: number
   COST_REFERENCE: number | null
   DESCRIPTION: string
+  COMPATIBILITY_COUNT: number
+  COMPATIBILITIES?: ArticleCompatibilityResponse[]
   STATE: string
   CREATED_AT?: Date | null
+}
+
+type ArticlePaginationRow = {
+  ARTICLE_ID: number | string
+  CODE: string | null
+  NAME: string | null
+  ITEM_TYPE: string | null
+  UNIT_MEASURE: string | null
+  CATEGORY: string | null
+  MIN_STOCK: number | string | null
+  MAX_STOCK: number | string | null
+  CURRENT_STOCK: number | string | null
+  COST_REFERENCE: number | string | null
+  DESCRIPTION: string | null
+  COMPATIBILITY_COUNT: number | string | null
+  STATE: string | null
+  CREATED_AT: Date | null
 }
 
 export class ArticleService extends BaseService {
@@ -72,29 +113,42 @@ export class ArticleService extends BaseService {
     this.assertStockRange(minStock, maxStock)
     await this.assertUniqueCode(businessId, code)
 
-    const article = this.articleRepository.create({
-      BUSINESS_ID: businessId,
-      CODE: code,
-      NAME: name,
-      ITEM_TYPE: this.normalizeRequiredText(
-        payload.ITEM_TYPE || 'REPUESTO',
-        'ITEM_TYPE'
-      ),
-      UNIT_MEASURE: this.normalizeRequiredText(
-        payload.UNIT_MEASURE || 'UND',
-        'UNIT_MEASURE'
-      ),
-      CATEGORY: payload.CATEGORY?.trim() || null,
-      MIN_STOCK: minStock,
-      MAX_STOCK: maxStock,
-      CURRENT_STOCK: currentStock,
-      COST_REFERENCE: costReference,
-      DESCRIPTION: payload.DESCRIPTION?.trim() || null,
-      STATE: payload.STATE || 'A',
-      CREATED_BY: sessionInfo.userId,
-    })
+    const compatibilities = this.normalizeCompatibilities(
+      payload.COMPATIBILITIES || []
+    )
 
-    const saved = await this.articleRepository.save(article)
+    const saved = await this.datasource.transaction(async (manager) => {
+      const article = manager.getRepository(Article).create({
+        BUSINESS_ID: businessId,
+        CODE: code,
+        NAME: name,
+        ITEM_TYPE: this.normalizeRequiredText(
+          payload.ITEM_TYPE || 'REPUESTO',
+          'ITEM_TYPE'
+        ),
+        UNIT_MEASURE: this.normalizeRequiredText(
+          payload.UNIT_MEASURE || 'UND',
+          'UNIT_MEASURE'
+        ),
+        CATEGORY: payload.CATEGORY?.trim() || null,
+        MIN_STOCK: minStock,
+        MAX_STOCK: maxStock,
+        CURRENT_STOCK: currentStock,
+        COST_REFERENCE: costReference,
+        DESCRIPTION: payload.DESCRIPTION?.trim() || null,
+        STATE: payload.STATE || 'A',
+        CREATED_BY: sessionInfo.userId,
+      })
+
+      const savedArticle = await manager.getRepository(Article).save(article)
+      await this.replaceCompatibilities(
+        manager,
+        savedArticle.ARTICLE_ID,
+        compatibilities,
+        sessionInfo.userId
+      )
+      return savedArticle
+    })
 
     return this.success({
       data: await this.buildArticleResponse(saved.ARTICLE_ID, businessId),
@@ -140,6 +194,10 @@ export class ArticleService extends BaseService {
         : this.toNumber(article.MAX_STOCK)
 
     this.assertStockRange(minStock, maxStock)
+    const compatibilities =
+      payload.COMPATIBILITIES !== undefined
+        ? this.normalizeCompatibilities(payload.COMPATIBILITIES)
+        : undefined
 
     if (payload.CODE !== undefined) article.CODE = code
     if (payload.NAME !== undefined) {
@@ -187,7 +245,18 @@ export class ArticleService extends BaseService {
 
     article.UPDATED_BY = sessionInfo.userId
 
-    await this.articleRepository.save(article)
+    await this.datasource.transaction(async (manager) => {
+      await manager.getRepository(Article).save(article)
+
+      if (compatibilities !== undefined) {
+        await this.replaceCompatibilities(
+          manager,
+          article.ARTICLE_ID,
+          compatibilities,
+          sessionInfo.userId
+        )
+      }
+    })
 
     return this.success({
       data: await this.buildArticleResponse(article.ARTICLE_ID, businessId),
@@ -209,21 +278,124 @@ export class ArticleService extends BaseService {
     pagination: Pagination
   ): Promise<ApiResponse<ArticleResponse[]>> {
     const businessId = (await this.getBusinessInfo(['BUSINESS_ID'])).BUSINESS_ID
+    const normalizedConditions = preparePaginationConditions(conditions, [
+      'CODE',
+      'NAME',
+      'ITEM_TYPE',
+      'UNIT_MEASURE',
+      'CATEGORY',
+      'DESCRIPTION',
+    ])
+    const { whereClause, values } = whereClauseBuilder(
+      normalizedConditions as AdvancedCondition<Record<string, unknown>>[]
+    )
+    const statement = `
+      SELECT
+        "ARTICLE_ID",
+        "CODE",
+        "NAME",
+        "ITEM_TYPE",
+        "UNIT_MEASURE",
+        "CATEGORY",
+        "MIN_STOCK",
+        "MAX_STOCK",
+        "CURRENT_STOCK",
+        "COST_REFERENCE",
+        "DESCRIPTION",
+        "COMPATIBILITY_COUNT",
+        "STATE",
+        "CREATED_AT"
+      FROM (
+        SELECT
+          "a"."ARTICLE_ID" AS "ARTICLE_ID",
+          "a"."CODE" AS "CODE",
+          "a"."NAME" AS "NAME",
+          "a"."ITEM_TYPE" AS "ITEM_TYPE",
+          "a"."UNIT_MEASURE" AS "UNIT_MEASURE",
+          "a"."CATEGORY" AS "CATEGORY",
+          "a"."MIN_STOCK" AS "MIN_STOCK",
+          "a"."MAX_STOCK" AS "MAX_STOCK",
+          "a"."CURRENT_STOCK" AS "CURRENT_STOCK",
+          "a"."COST_REFERENCE" AS "COST_REFERENCE",
+          "a"."DESCRIPTION" AS "DESCRIPTION",
+          (
+            SELECT COUNT(*)
+            FROM "ARTICLE_COMPATIBILITY" "ac"
+            WHERE "ac"."ARTICLE_ID" = "a"."ARTICLE_ID"
+          ) AS "COMPATIBILITY_COUNT",
+          "a"."STATE" AS "STATE",
+          "a"."CREATED_AT" AS "CREATED_AT"
+        FROM "ARTICLE" "a"
+        WHERE "a"."BUSINESS_ID" = ${Number(businessId)}
+      ) AS "article_rows"
+      ${whereClause}
+      ORDER BY "ARTICLE_ID" DESC
+    `
+
+    const [data, metadata] = await paginatedQuery<ArticlePaginationRow>({
+      statement,
+      values,
+      pagination,
+    })
+    const rows = data.map((item) => this.mapPaginatedArticleRow(item))
+
+    return this.success({ data: rows, metadata })
+  }
+
+  @CatchServiceError()
+  async getCompatibleByVehicle(
+    vehicleId: number
+  ): Promise<ApiResponse<ArticleResponse[]>> {
+    const businessId = (await this.getBusinessInfo(['BUSINESS_ID'])).BUSINESS_ID
+    const vehicle = await this.datasource.getRepository(Vehicle).findOne({
+      where: { VEHICLE_ID: vehicleId, BUSINESS_ID: businessId, STATE: 'A' },
+    })
+
+    if (!vehicle) {
+      throw new NotFoundError(`Vehiculo con id '${vehicleId}' no encontrado.`)
+    }
 
     const qb = this.articleRepository
       .createQueryBuilder('a')
+      .innerJoinAndSelect('a.COMPATIBILITIES', 'ac')
       .where('a.BUSINESS_ID = :businessId', { businessId })
+      .andWhere('a.STATE = :state', { state: 'A' })
+      .andWhere('UPPER(unaccent(ac.BRAND)) = UPPER(unaccent(:brand))', {
+        brand: vehicle.BRAND,
+      })
+      .andWhere('UPPER(unaccent(ac.MODEL)) = UPPER(unaccent(:model))', {
+        model: vehicle.MODEL,
+      })
+      .orderBy(
+        'CASE WHEN "a"."CURRENT_STOCK" > 0 THEN 1 ELSE 0 END',
+        'DESC'
+      )
+      .addOrderBy('"a"."CURRENT_STOCK"', 'DESC')
+      .addOrderBy('"a"."NAME"', 'ASC')
 
-    if (conditions.length) {
-      this.applyConditions(qb, conditions)
+    if (vehicle.YEAR !== null && vehicle.YEAR !== undefined) {
+      qb.andWhere('(ac.YEAR_FROM IS NULL OR ac.YEAR_FROM <= :year)', {
+        year: vehicle.YEAR,
+      })
+      qb.andWhere('(ac.YEAR_TO IS NULL OR ac.YEAR_TO >= :year)', {
+        year: vehicle.YEAR,
+      })
     }
 
-    qb.orderBy('"a"."ARTICLE_ID"', 'DESC')
+    if (vehicle.ENGINE) {
+      qb.andWhere(
+        `(ac.ENGINE IS NULL OR TRIM(ac.ENGINE) = '' OR UPPER(unaccent(ac.ENGINE)) = UPPER(unaccent(:engine)))`,
+        {
+          engine: vehicle.ENGINE,
+        }
+      )
+    }
 
-    const { data, metadata } = await paginate(qb, pagination)
-    const rows = data.map((item) => this.mapArticle(item))
+    const articles = await qb.getMany()
 
-    return this.success({ data: rows, metadata })
+    return this.success({
+      data: articles.map((item) => this.mapArticle(item)),
+    })
   }
 
   private async buildArticleResponse(
@@ -232,6 +404,7 @@ export class ArticleService extends BaseService {
   ): Promise<ArticleResponse> {
     const article = await this.articleRepository.findOne({
       where: { ARTICLE_ID: articleId, BUSINESS_ID: businessId },
+      relations: ['COMPATIBILITIES'],
     })
 
     if (!article) {
@@ -258,8 +431,60 @@ export class ArticleService extends BaseService {
           ? null
           : this.toNumber(article.COST_REFERENCE),
       DESCRIPTION: article.DESCRIPTION || '',
+      COMPATIBILITY_COUNT: Number(
+        article.COMPATIBILITY_COUNT ?? article.COMPATIBILITIES?.length ?? 0
+      ),
+      COMPATIBILITIES: (article.COMPATIBILITIES || [])
+        .sort(
+          (a, b) =>
+            a.ARTICLE_COMPATIBILITY_ID - b.ARTICLE_COMPATIBILITY_ID
+        )
+        .map((item) => ({
+          ARTICLE_COMPATIBILITY_ID: item.ARTICLE_COMPATIBILITY_ID,
+          BRAND: item.BRAND || '',
+          MODEL: item.MODEL || '',
+          YEAR_FROM: item.YEAR_FROM ?? null,
+          YEAR_TO: item.YEAR_TO ?? null,
+          ENGINE: item.ENGINE || '',
+          NOTES: item.NOTES || '',
+        })),
       STATE: article.STATE || 'A',
       CREATED_AT: article.CREATED_AT,
+    }
+  }
+
+  private mapPaginatedArticleRow(article: ArticlePaginationRow): ArticleResponse {
+    return {
+      ARTICLE_ID: Number(article.ARTICLE_ID),
+      CODE: article.CODE || '',
+      NAME: article.NAME || '',
+      ITEM_TYPE: article.ITEM_TYPE || '',
+      UNIT_MEASURE: article.UNIT_MEASURE || '',
+      CATEGORY: article.CATEGORY || '',
+      MIN_STOCK:
+        article.MIN_STOCK === null || article.MIN_STOCK === undefined
+          ? 0
+          : this.toNumber(article.MIN_STOCK),
+      MAX_STOCK:
+        article.MAX_STOCK === null || article.MAX_STOCK === undefined
+          ? null
+          : this.toNumber(article.MAX_STOCK),
+      CURRENT_STOCK:
+        article.CURRENT_STOCK === null || article.CURRENT_STOCK === undefined
+          ? 0
+          : this.toNumber(article.CURRENT_STOCK),
+      COST_REFERENCE:
+        article.COST_REFERENCE === null || article.COST_REFERENCE === undefined
+          ? null
+          : this.toNumber(article.COST_REFERENCE),
+      DESCRIPTION: article.DESCRIPTION || '',
+      COMPATIBILITY_COUNT:
+        article.COMPATIBILITY_COUNT === null ||
+        article.COMPATIBILITY_COUNT === undefined
+          ? 0
+          : Number(article.COMPATIBILITY_COUNT),
+      STATE: article.STATE || 'A',
+      CREATED_AT: article.CREATED_AT || null,
     }
   }
 
@@ -281,6 +506,80 @@ export class ArticleService extends BaseService {
     }
 
     return normalized
+  }
+
+  private normalizeCompatibilities(
+    compatibilities: ArticlePayload['COMPATIBILITIES'] = []
+  ) {
+    return compatibilities.map((item, index) => {
+      const brand = this.normalizeRequiredText(item.BRAND, `COMPATIBILITIES[${index}].BRAND`)
+      const model = this.normalizeRequiredText(item.MODEL, `COMPATIBILITIES[${index}].MODEL`)
+      const yearFrom =
+        item.YEAR_FROM === undefined || item.YEAR_FROM === null
+          ? null
+          : this.normalizeYear(item.YEAR_FROM, `COMPATIBILITIES[${index}].YEAR_FROM`)
+      const yearTo =
+        item.YEAR_TO === undefined || item.YEAR_TO === null
+          ? null
+          : this.normalizeYear(item.YEAR_TO, `COMPATIBILITIES[${index}].YEAR_TO`)
+
+      if (
+        yearFrom !== null &&
+        yearTo !== null &&
+        Number(yearTo) < Number(yearFrom)
+      ) {
+        throw new BadRequestError(
+          'YEAR_TO no puede ser menor que YEAR_FROM en la compatibilidad.'
+        )
+      }
+
+      return {
+        BRAND: brand,
+        MODEL: model,
+        YEAR_FROM: yearFrom,
+        YEAR_TO: yearTo,
+        ENGINE: item.ENGINE?.trim() || null,
+        NOTES: item.NOTES?.trim() || null,
+      }
+    })
+  }
+
+  private normalizeYear(value: number, fieldName: string): number {
+    const year = Number(value)
+
+    if (!Number.isInteger(year) || year < 1900 || year > 2100) {
+      throw new BadRequestError(`${fieldName} debe estar entre 1900 y 2100.`)
+    }
+
+    return year
+  }
+
+  private async replaceCompatibilities(
+    manager: any,
+    articleId: number,
+    compatibilities: ReturnType<ArticleService['normalizeCompatibilities']>,
+    userId: number
+  ): Promise<void> {
+    const repo = manager.getRepository(ArticleCompatibility)
+    await repo.delete({ ARTICLE_ID: articleId })
+
+    if (!compatibilities.length) return
+
+    await repo.save(
+      compatibilities.map((item) =>
+        repo.create({
+          ARTICLE_ID: articleId,
+          BRAND: item.BRAND,
+          MODEL: item.MODEL,
+          YEAR_FROM: item.YEAR_FROM,
+          YEAR_TO: item.YEAR_TO,
+          ENGINE: item.ENGINE,
+          NOTES: item.NOTES,
+          CREATED_BY: userId,
+          STATE: 'A',
+        })
+      )
+    )
   }
 
   private normalizeNonNegativeNumber(
@@ -340,97 +639,4 @@ export class ArticleService extends BaseService {
     }
   }
 
-  private applyConditions(
-    qb: SelectQueryBuilder<Article>,
-    conditions: AdvancedCondition<Article>[]
-  ): void {
-    conditions.forEach((condition, index) => {
-      const operator = (condition.operator || '').toUpperCase()
-      const paramName = `param_${index}`
-
-      if (String(condition.field).toUpperCase() === 'FILTER') {
-        const search = `%${condition.value}%`
-        qb.andWhere(
-          `
-            UPPER(unaccent("a"."CODE"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("a"."NAME"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("a"."ITEM_TYPE"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("a"."UNIT_MEASURE"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("a"."CATEGORY"::text)) LIKE UPPER(:${paramName})
-            OR UPPER(unaccent("a"."DESCRIPTION"::text)) LIKE UPPER(:${paramName})
-          `,
-          { [paramName]: search }
-        )
-        return
-      }
-
-      const fields = Array.isArray(condition.field)
-        ? condition.field.map((item) => String(item))
-        : [String(condition.field)]
-      const columns = fields.map((field) => this.resolveColumn(field))
-      const expression =
-        columns.length > 1 ? columns.join(` || ' ' || `) : columns[0]
-
-      switch (operator) {
-        case '=':
-        case '!=':
-        case '<':
-        case '<=':
-        case '>':
-        case '>=':
-          qb.andWhere(`${expression} ${operator} :${paramName}`, {
-            [paramName]: condition.value,
-          })
-          break
-        case 'LIKE':
-          qb.andWhere(
-            `UPPER(unaccent(${expression}::text)) LIKE UPPER(:${paramName})`,
-            {
-              [paramName]: `%${condition.value}%`,
-            }
-          )
-          break
-        case 'IN':
-        case 'NOT IN':
-          if (!Array.isArray(condition.value)) {
-            throw new BadRequestError(
-              `El operador '${operator}' requiere un arreglo de valores.`
-            )
-          }
-          qb.andWhere(`${columns[0]} ${operator} (:...${paramName})`, {
-            [paramName]: condition.value,
-          })
-          break
-        case 'BETWEEN':
-          if (!Array.isArray(condition.value) || condition.value.length !== 2) {
-            throw new BadRequestError(
-              "El operador 'BETWEEN' requiere exactamente dos valores."
-            )
-          }
-          qb.andWhere(
-            `${columns[0]} BETWEEN :${paramName}_start AND :${paramName}_end`,
-            {
-              [`${paramName}_start`]: condition.value[0],
-              [`${paramName}_end`]: condition.value[1],
-            }
-          )
-          break
-        case 'IS NULL':
-          qb.andWhere(`${columns[0]} IS NULL`)
-          break
-        case 'IS NOT NULL':
-          qb.andWhere(`${columns[0]} IS NOT NULL`)
-          break
-        default:
-          throw new BadRequestError(
-            `Operador '${condition.operator}' no soportado.`
-          )
-      }
-    })
-  }
-
-  private resolveColumn(field: string): string {
-    const normalized = field.toUpperCase()
-    return `"a"."${normalized}"`
-  }
 }

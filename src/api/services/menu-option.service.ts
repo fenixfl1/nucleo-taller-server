@@ -8,8 +8,9 @@ import {
   SessionInfo,
 } from '@src/types/api.types'
 import { NotFoundError } from '@api/errors/http.error'
-import { queryBuilder } from '@src/helpers/query-builder'
-import { paginate } from '@src/helpers/query-utils'
+import { paginatedQuery } from '@src/helpers/query-utils'
+import { whereClauseBuilder } from '@src/helpers/where-clausure-builder'
+import { preparePaginationConditions } from '@src/helpers/prepare-pagination-conditions'
 import { getPermissionIdFromMenuOptionId } from '@helpers/menu-permission'
 
 interface OptionWithPermission {
@@ -147,18 +148,51 @@ export class MenuOptionService extends BaseService {
     conditions: AdvancedCondition<MenuOption>[] = [],
     pagination: Pagination
   ): Promise<ApiResponse<OptionWithPermission[]>> {
-    const qb = this.menuOptionRepository
-      .createQueryBuilder('mo')
-      .leftJoinAndSelect('mo.PARENT', 'parent')
-      .where('mo.STATE = :state', { state: 'A' })
-
-    if (conditions.length) {
-      queryBuilder(qb, conditions)
-    }
-
-    qb.orderBy('mo.ORDER', 'ASC')
-
-    const { data, metadata } = await paginate(qb, pagination)
+    const normalizedConditions = preparePaginationConditions(conditions, [
+      'MENU_OPTION_ID',
+      'NAME',
+      'DESCRIPTION',
+      'PATH',
+      'TYPE',
+      'CONTENT',
+      'PARENT_ID',
+    ])
+    const { whereClause, values } = whereClauseBuilder(
+      normalizedConditions as AdvancedCondition<Record<string, unknown>>[]
+    )
+    const statement = `
+      SELECT
+        "MENU_OPTION_ID",
+        "NAME",
+        "DESCRIPTION",
+        "PATH",
+        "TYPE",
+        "STATE",
+        "ORDER",
+        "PARENT_ID",
+        "CONTENT"
+      FROM (
+        SELECT
+          "MENU_OPTION_ID",
+          "NAME",
+          "DESCRIPTION",
+          "PATH",
+          "TYPE",
+          "STATE",
+          "ORDER",
+          "PARENT_ID",
+          "CONTENT"
+        FROM "MENU_OPTION"
+        WHERE "STATE" = 'A'
+      ) AS "menu_option_rows"
+      ${whereClause}
+      ORDER BY "ORDER" ASC, "MENU_OPTION_ID" ASC
+    `
+    const [data, metadata] = await paginatedQuery<MenuOption>({
+      statement,
+      values,
+      pagination,
+    })
 
     const optionsWithPermissions: OptionWithPermission[] = data.map((item) => {
       const permissionId = getPermissionIdFromMenuOptionId(item.MENU_OPTION_ID)
