@@ -17,6 +17,10 @@ export const createStaffAccessSchema = Joi.object({
   CONTACTS: Joi.array().items(contactSchema).optional().default([]),
   USERNAME: Joi.string().min(3).max(60).required(),
   ROLE_ID: Joi.number().required(),
+  EMPLOYEE_TYPE: Joi.string()
+    .valid('OPERACIONAL', 'ADMINISTRATIVO')
+    .optional()
+    .default('OPERACIONAL'),
   AVATAR: Joi.string().allow('', null).optional(),
   STATE: Joi.string().valid('A', 'I').optional().default('A'),
   PASSWORD: Joi.string().min(8).max(120).optional(),
@@ -34,6 +38,9 @@ export const updateStaffAccessSchema = Joi.object({
   ADDRESS: Joi.string().max(250).allow('', null).optional(),
   CONTACTS: Joi.array().items(contactSchema).optional(),
   STATE: Joi.string().valid('A', 'I').optional(),
+  EMPLOYEE_TYPE: Joi.string()
+    .valid('OPERACIONAL', 'ADMINISTRATIVO')
+    .optional(),
   AVATAR: Joi.string().allow('', null).optional(),
 })
 

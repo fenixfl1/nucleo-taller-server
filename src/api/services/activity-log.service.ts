@@ -13,6 +13,7 @@ import { BaseService, CatchServiceError } from './base.service'
 type ActivityLogRow = {
   ID: number | string
   STAFF_ID: number | string
+  EMPLOYEE_TYPE: string | null
   ACTION: string | null
   MODEL: string | null
   OBJECT_ID: number | string | null
@@ -27,6 +28,7 @@ type ActivityLogRow = {
 export type ActivityLogResponse = {
   ID: number
   STAFF_ID: number
+  EMPLOYEE_TYPE: string
   ACTION: string
   MODEL: string
   OBJECT_ID: number | null
@@ -47,6 +49,7 @@ export class ActivityLogService extends BaseService {
     const normalizedConditions = preparePaginationConditions(conditions, [
       'ACTION',
       'MODEL',
+      'EMPLOYEE_TYPE',
       'USERNAME',
       'STAFF_NAME',
       'IP',
@@ -61,6 +64,7 @@ export class ActivityLogService extends BaseService {
       SELECT
         "ID",
         "STAFF_ID",
+        "EMPLOYEE_TYPE",
         "ACTION",
         "MODEL",
         "OBJECT_ID",
@@ -74,6 +78,7 @@ export class ActivityLogService extends BaseService {
         SELECT
           "al"."ID" AS "ID",
           "al"."STAFF_ID" AS "STAFF_ID",
+          "s"."EMPLOYEE_TYPE" AS "EMPLOYEE_TYPE",
           "al"."ACTION" AS "ACTION",
           "al"."MODEL" AS "MODEL",
           "al"."OBJECT_ID" AS "OBJECT_ID",
@@ -111,6 +116,7 @@ export class ActivityLogService extends BaseService {
       SELECT
         "al"."ID" AS "ID",
         "al"."STAFF_ID" AS "STAFF_ID",
+        "s"."EMPLOYEE_TYPE" AS "EMPLOYEE_TYPE",
         "al"."ACTION" AS "ACTION",
         "al"."MODEL" AS "MODEL",
         "al"."OBJECT_ID" AS "OBJECT_ID",
@@ -144,6 +150,7 @@ export class ActivityLogService extends BaseService {
     return {
       ID: Number(row.ID),
       STAFF_ID: Number(row.STAFF_ID),
+      EMPLOYEE_TYPE: row.EMPLOYEE_TYPE || '',
       ACTION: row.ACTION || '',
       MODEL: row.MODEL || '',
       OBJECT_ID:

@@ -12,3 +12,8 @@ export { InternalPurchaseOrderMenuOptionMigration1772710000000 } from './1772710
 export { InternalPurchaseOrderStatusReceiptMigration1772720000000 } from './1772720000000-internal-purchase-order-status-receipt-migration'
 export { BusinessRefinementMigration1772730000000 } from './1772730000000-business-refinement-migration'
 export { DashboardMenuRestructureMigration1772740000000 } from './1772740000000-dashboard-menu-restructure-migration'
+export { WorkOrderPriorityMenuMigration1772800000000 } from './1772800000000-work-order-priority-menu-migration'
+export { WorkOrderServicesPhaseFourMigration1772810000000 } from './1772810000000-work-order-services-phase-four-migration'
+export { StaffEmployeeTypeMigration1772820000000 } from './1772820000000-staff-employee-type-migration'
+export { ServiceVehicleModuleMigration1772830000000 } from './1772830000000-service-vehicle-module-migration'
+export { ServiceVehicleOperationsMigration1772840000000 } from './1772840000000-service-vehicle-operations-migration'

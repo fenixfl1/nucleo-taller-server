@@ -15,6 +15,8 @@ import Business from './Business'
 import { Role } from './Role'
 import { Person } from './Person'
 
+export type EmployeeType = 'OPERACIONAL' | 'ADMINISTRATIVO'
+
 @Entity({ name: 'STAFF' })
 export class Staff extends BaseEntity {
   @PrimaryGeneratedColumn()
@@ -28,6 +30,9 @@ export class Staff extends BaseEntity {
 
   @Column({ type: 'integer', nullable: true })
   PERSON_ID: number
+
+  @Column({ type: 'varchar', length: 20, nullable: false, default: 'OPERACIONAL' })
+  EMPLOYEE_TYPE: EmployeeType
 
   @Column({ type: 'text', nullable: true })
   AVATAR: string

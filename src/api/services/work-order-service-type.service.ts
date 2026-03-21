@@ -21,6 +21,7 @@ type WorkOrderServiceTypePayload = {
   CODE?: string
   NAME?: string
   DESCRIPTION?: string | null
+  BASE_PRICE?: number
   ORDER_INDEX?: number
   STATE?: string
 }
@@ -30,6 +31,7 @@ export type WorkOrderServiceTypeResponse = {
   CODE: string
   NAME: string
   DESCRIPTION: string
+  BASE_PRICE: number
   ORDER_INDEX: number
   STATE: string
   SCOPE: 'BASE' | 'EMPRESA'
@@ -41,6 +43,7 @@ type WorkOrderServiceTypePaginationRow = {
   CODE: string | null
   NAME: string | null
   DESCRIPTION: string | null
+  BASE_PRICE: number | string | null
   ORDER_INDEX: number | string | null
   STATE: string | null
   SCOPE: 'BASE' | 'EMPRESA'
@@ -70,6 +73,7 @@ export class WorkOrderServiceTypeService extends BaseService {
       CODE: code,
       NAME: this.normalizeRequiredText(payload.NAME, 'NAME'),
       DESCRIPTION: this.normalizeNullableText(payload.DESCRIPTION),
+      BASE_PRICE: this.normalizeAmount(payload.BASE_PRICE),
       ORDER_INDEX: this.normalizeOrderIndex(payload.ORDER_INDEX),
       STATE: payload.STATE || 'A',
       CREATED_BY: sessionInfo.userId,
@@ -107,6 +111,9 @@ export class WorkOrderServiceTypeService extends BaseService {
     if (payload.DESCRIPTION !== undefined) {
       row.DESCRIPTION = this.normalizeNullableText(payload.DESCRIPTION)
     }
+    if (payload.BASE_PRICE !== undefined) {
+      row.BASE_PRICE = this.normalizeAmount(payload.BASE_PRICE)
+    }
     if (payload.ORDER_INDEX !== undefined) {
       row.ORDER_INDEX = this.normalizeOrderIndex(payload.ORDER_INDEX)
     }
@@ -143,6 +150,7 @@ export class WorkOrderServiceTypeService extends BaseService {
       'CODE',
       'NAME',
       'DESCRIPTION',
+      'BASE_PRICE',
     ])
     const { whereClause, values } = whereClauseBuilder(
       normalizedConditions as AdvancedCondition<Record<string, unknown>>[]
@@ -153,6 +161,7 @@ export class WorkOrderServiceTypeService extends BaseService {
         "CODE",
         "NAME",
         "DESCRIPTION",
+        "BASE_PRICE",
         "ORDER_INDEX",
         "STATE",
         "SCOPE",
@@ -163,6 +172,7 @@ export class WorkOrderServiceTypeService extends BaseService {
           "CODE",
           "NAME",
           "DESCRIPTION",
+          "BASE_PRICE",
           "ORDER_INDEX",
           "STATE",
           CASE
@@ -238,6 +248,7 @@ export class WorkOrderServiceTypeService extends BaseService {
       CODE: row.CODE || '',
       NAME: row.NAME || '',
       DESCRIPTION: row.DESCRIPTION || '',
+      BASE_PRICE: Number(row.BASE_PRICE || 0),
       ORDER_INDEX: row.ORDER_INDEX || 0,
       STATE: row.STATE || 'A',
       SCOPE: row.BUSINESS_ID ? 'EMPRESA' : 'BASE',
@@ -253,6 +264,10 @@ export class WorkOrderServiceTypeService extends BaseService {
       CODE: row.CODE || '',
       NAME: row.NAME || '',
       DESCRIPTION: row.DESCRIPTION || '',
+      BASE_PRICE:
+        row.BASE_PRICE === null || row.BASE_PRICE === undefined
+          ? 0
+          : Number(row.BASE_PRICE),
       ORDER_INDEX:
         row.ORDER_INDEX === null || row.ORDER_INDEX === undefined
           ? 0
@@ -291,6 +306,15 @@ export class WorkOrderServiceTypeService extends BaseService {
       throw new BadRequestError('ORDER_INDEX debe ser un entero positivo.')
     }
     return normalized
+  }
+
+  private normalizeAmount(value?: number): number {
+    if (value === undefined || value === null) return 0
+    const normalized = Number(value)
+    if (!Number.isFinite(normalized) || normalized < 0) {
+      throw new BadRequestError('BASE_PRICE debe ser un numero mayor o igual a 0.')
+    }
+    return Number(normalized.toFixed(2))
   }
 
   private async assertUniqueCode(

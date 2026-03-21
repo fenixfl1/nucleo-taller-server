@@ -3,7 +3,7 @@ import { Repository } from 'typeorm'
 import { BaseService, CatchServiceError } from './base.service'
 import { Role } from '@entity/Role'
 import { Person } from '@entity/Person'
-import { Staff } from '@entity/Staff'
+import { EmployeeType, Staff } from '@entity/Staff'
 import { Contact, ContactType, ContactUsage } from '@entity/Contact'
 import {
   AdvancedCondition,
@@ -41,6 +41,7 @@ type CreateStaffAccessPayload = {
   PHONE?: string | null
   USERNAME?: string
   ROLE_ID?: number
+  EMPLOYEE_TYPE?: EmployeeType
   AVATAR?: string | null
   STATE?: string
   PASSWORD?: string
@@ -50,6 +51,7 @@ type UpdateStaffAccessPayload = {
   USER_ID?: number
   USERNAME?: string
   ROLE_ID?: number
+  EMPLOYEE_TYPE?: EmployeeType
   NAME?: string
   LAST_NAME?: string | null
   IDENTITY_DOCUMENT?: string | null
@@ -96,6 +98,7 @@ export type StaffAccessResponse = {
   ADDRESS: string
   STAFF_ID: number
   ROLE_ID: number
+  EMPLOYEE_TYPE: EmployeeType
 }
 
 type StaffAccessPaginationRow = {
@@ -113,6 +116,7 @@ type StaffAccessPaginationRow = {
   ADDRESS: string | null
   PERSON_ID: number | string
   ROLE_ID: number | string
+  EMPLOYEE_TYPE: EmployeeType | null
 }
 
 export class StaffService extends BaseService {
@@ -181,6 +185,7 @@ export class StaffService extends BaseService {
         BUSINESS_ID: businessId,
         PERSON_ID: savedPerson.PERSON_ID,
         ROLE_ID: roleId,
+        EMPLOYEE_TYPE: this.normalizeEmployeeType(payload.EMPLOYEE_TYPE),
         USERNAME: username,
         PASSWORD: hashedPassword,
         AVATAR: payload.AVATAR || null,
@@ -261,6 +266,9 @@ export class StaffService extends BaseService {
       if (payload.ROLE_ID) {
         await this.assertRoleExistsWithRepo(roleRepo, payload.ROLE_ID)
         staff.ROLE_ID = payload.ROLE_ID
+      }
+      if (payload.EMPLOYEE_TYPE !== undefined) {
+        staff.EMPLOYEE_TYPE = this.normalizeEmployeeType(payload.EMPLOYEE_TYPE)
       }
 
       if (payload.STATE) {
@@ -360,6 +368,7 @@ export class StaffService extends BaseService {
       'IDENTITY_DOCUMENT',
       'ROLES',
       'STATE',
+      'EMPLOYEE_TYPE',
     ])
     const { whereClause, values } = whereClauseBuilder(
       normalizedConditions as AdvancedCondition<Record<string, unknown>>[]
@@ -379,7 +388,8 @@ export class StaffService extends BaseService {
         "GENDER",
         "ADDRESS",
         "PERSON_ID",
-        "ROLE_ID"
+        "ROLE_ID",
+        "EMPLOYEE_TYPE"
       FROM (
         SELECT
           "u"."STAFF_ID" AS "USER_ID",
@@ -388,6 +398,7 @@ export class StaffService extends BaseService {
           "u"."STATE" AS "STATE",
           "u"."CREATED_AT" AS "CREATED_AT",
           "u"."ROLE_ID" AS "ROLE_ID",
+          "u"."EMPLOYEE_TYPE" AS "EMPLOYEE_TYPE",
           "p"."PERSON_ID" AS "PERSON_ID",
           "p"."NAME" AS "NAME",
           "p"."LAST_NAME" AS "LAST_NAME",
@@ -644,8 +655,9 @@ export class StaffService extends BaseService {
       BIRTH_DATE: person?.BIRTH_DATE?.toISOString?.() || '',
       GENDER: person?.GENDER || '',
       ADDRESS: person?.ADDRESS || '',
-      STAFF_ID: person?.PERSON_ID || 0,
+      STAFF_ID: staff.STAFF_ID || 0,
       ROLE_ID: staff.ROLE_ID,
+      EMPLOYEE_TYPE: staff.EMPLOYEE_TYPE || 'OPERACIONAL',
     }
   }
 
@@ -678,9 +690,17 @@ export class StaffService extends BaseService {
       BIRTH_DATE: this.toIsoString(staff.BIRTH_DATE),
       GENDER: staff.GENDER || '',
       ADDRESS: staff.ADDRESS || '',
-      STAFF_ID: Number(staff.PERSON_ID),
+      STAFF_ID: Number(staff.USER_ID),
       ROLE_ID: Number(staff.ROLE_ID),
+      EMPLOYEE_TYPE: staff.EMPLOYEE_TYPE || 'OPERACIONAL',
     }
+  }
+
+  private normalizeEmployeeType(value?: string | null): EmployeeType {
+    const normalized = `${value || 'OPERACIONAL'}`.trim().toUpperCase()
+    return normalized === 'ADMINISTRATIVO'
+      ? 'ADMINISTRATIVO'
+      : 'OPERACIONAL'
   }
 
   private toIsoString(value?: Date | string | null): string {

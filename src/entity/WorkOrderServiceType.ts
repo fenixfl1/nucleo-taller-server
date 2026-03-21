@@ -30,6 +30,9 @@ export class WorkOrderServiceType extends BaseEntity {
   @Column({ type: 'varchar', length: 250, nullable: true })
   DESCRIPTION: string | null
 
+  @Column({ type: 'numeric', precision: 12, scale: 2, nullable: false, default: 0 })
+  BASE_PRICE: number
+
   @Column({ type: 'integer', nullable: false, default: 0 })
   ORDER_INDEX: number
 

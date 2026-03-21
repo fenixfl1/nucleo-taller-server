@@ -81,30 +81,21 @@ async function run(): Promise<void> {
       STATE: 'A',
     },
     {
-      MENU_OPTION_ID: '0-2',
-      NAME: 'Clientes',
-      DESCRIPTION: 'Gestion de clientes',
-      PATH: '/0-2/clientes',
-      TYPE: 'item',
-      ORDER: 2,
-      STATE: 'A',
-    },
-    {
-      MENU_OPTION_ID: '0-3',
-      NAME: 'Vehiculos',
-      DESCRIPTION: 'Gestion de vehiculos',
-      PATH: '/0-3/vehiculos',
-      TYPE: 'item',
-      ORDER: 3,
-      STATE: 'A',
-    },
-    {
       MENU_OPTION_ID: '0-4',
       NAME: 'Ordenes de trabajo',
       DESCRIPTION: 'Gestion de ordenes de trabajo',
       PATH: '/0-4/ordenes-trabajo',
       TYPE: 'item',
-      ORDER: 4,
+      ORDER: 2,
+      STATE: 'A',
+    },
+    {
+      MENU_OPTION_ID: '0-6',
+      NAME: 'Entregas',
+      DESCRIPTION: 'Comprobantes y entregas',
+      PATH: '/0-6/entregas',
+      TYPE: 'item',
+      ORDER: 3,
       STATE: 'A',
     },
     {
@@ -113,14 +104,23 @@ async function run(): Promise<void> {
       DESCRIPTION: 'Inventario y control de stock',
       PATH: '/0-5/inventario',
       TYPE: 'submenu',
+      ORDER: 4,
+      STATE: 'A',
+    },
+    {
+      MENU_OPTION_ID: '0-3',
+      NAME: 'Vehiculos',
+      DESCRIPTION: 'Gestion de vehiculos',
+      PATH: '/0-3/vehiculos',
+      TYPE: 'item',
       ORDER: 5,
       STATE: 'A',
     },
     {
-      MENU_OPTION_ID: '0-6',
-      NAME: 'Entregas',
-      DESCRIPTION: 'Comprobantes y entregas',
-      PATH: '/0-6/entregas',
+      MENU_OPTION_ID: '0-2',
+      NAME: 'Clientes',
+      DESCRIPTION: 'Gestion de clientes',
+      PATH: '/0-2/clientes',
       TYPE: 'item',
       ORDER: 6,
       STATE: 'A',
@@ -137,7 +137,7 @@ async function run(): Promise<void> {
     {
       MENU_OPTION_ID: '0-9',
       NAME: 'Seguridad',
-      DESCRIPTION: 'Usuarios, roles y bitacora',
+      DESCRIPTION: 'Empleados, roles y bitacora',
       PATH: '/0-9/seguridad',
       TYPE: 'submenu',
       ORDER: 9,
@@ -185,9 +185,9 @@ async function run(): Promise<void> {
     },
     {
       MENU_OPTION_ID: '0-8-1',
-      NAME: 'Catalogos',
-      DESCRIPTION: 'Listas base del sistema',
-      PATH: '/0-8-1/configuracion/catalogos',
+      NAME: 'Servicios',
+      DESCRIPTION: 'Catalogo de servicios del taller',
+      PATH: '/0-8-1/configuracion/servicios',
       TYPE: 'item',
       PARENT_ID: '0-8',
       ORDER: 1,
@@ -204,9 +204,39 @@ async function run(): Promise<void> {
       STATE: 'A',
     },
     {
+      MENU_OPTION_ID: '0-8-3',
+      NAME: 'Vehículos de servicio',
+      DESCRIPTION: 'Mantenimiento de vehículos internos del taller',
+      PATH: '/0-8-3/configuracion/vehiculos-servicio',
+      TYPE: 'item',
+      PARENT_ID: '0-8',
+      ORDER: 3,
+      STATE: 'A',
+    },
+    {
+      MENU_OPTION_ID: '0-8-4',
+      NAME: 'Mantenimientos SV',
+      DESCRIPTION: 'Historial de mantenimientos de vehículos de servicio',
+      PATH: '/0-8-4/configuracion/vehiculos-servicio/mantenimientos',
+      TYPE: 'item',
+      PARENT_ID: '0-8',
+      ORDER: 4,
+      STATE: 'A',
+    },
+    {
+      MENU_OPTION_ID: '0-8-5',
+      NAME: 'Usos y salidas SV',
+      DESCRIPTION: 'Registro de salidas y uso de vehículos de servicio',
+      PATH: '/0-8-5/configuracion/vehiculos-servicio/usos',
+      TYPE: 'item',
+      PARENT_ID: '0-8',
+      ORDER: 5,
+      STATE: 'A',
+    },
+    {
       MENU_OPTION_ID: '0-9-1',
-      NAME: 'Usuarios',
-      DESCRIPTION: 'Gestion de usuarios',
+      NAME: 'Empleados',
+      DESCRIPTION: 'Gestion de empleados y accesos',
       PATH: '/0-9-1/seguridad/usuarios',
       TYPE: 'item',
       PARENT_ID: '0-9',
@@ -317,6 +347,7 @@ async function run(): Promise<void> {
         BUSINESS: business,
         ROLE_ID: adminRole.ROLE_ID,
         ROLE: adminRole,
+        EMPLOYEE_TYPE: 'ADMINISTRATIVO',
         PERSON_ID: person.PERSON_ID,
         PERSON: person,
       })
@@ -347,6 +378,10 @@ async function run(): Promise<void> {
     }
     if (staff && staff.STATE !== 'A') {
       staff.STATE = 'A'
+      updated = true
+    }
+    if (staff && staff.EMPLOYEE_TYPE !== 'ADMINISTRATIVO') {
+      staff.EMPLOYEE_TYPE = 'ADMINISTRATIVO'
       updated = true
     }
     if (staff && cfg.staff.FORCE_PASSWORD_UPDATE) {

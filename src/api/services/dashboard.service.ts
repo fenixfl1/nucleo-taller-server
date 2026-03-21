@@ -7,10 +7,16 @@ import { BaseService, CatchServiceError } from './base.service'
 type DashboardSummaryRow = {
   ACTIVE_CUSTOMERS: number | string | null
   ACTIVE_VEHICLES: number | string | null
+  ACTIVE_SERVICE_VEHICLES: number | string | null
   ACTIVE_ARTICLES: number | string | null
   ACTIVE_WORK_ORDERS: number | string | null
   READY_FOR_DELIVERY: number | string | null
   TOTAL_DELIVERIES: number | string | null
+  AVAILABLE_SERVICE_VEHICLES: number | string | null
+  PENDING_SERVICE_VEHICLE_MAINTENANCE: number | string | null
+  OVERDUE_SERVICE_VEHICLE_MAINTENANCE: number | string | null
+  TOTAL_SERVICE_VEHICLE_USAGE_HOURS: number | string | null
+  TOTAL_SERVICE_VEHICLE_USAGE_KILOMETERS: number | string | null
 }
 
 type DashboardWorkOrderRow = {
@@ -40,14 +46,60 @@ type DashboardDeliveryRow = {
   DELIVERY_DATE: Date | string | null
 }
 
+type DashboardServiceVehicleRow = {
+  SERVICE_VEHICLE_ID: number | string
+  NAME: string | null
+  PLATE: string | null
+  BRAND: string | null
+  MODEL: string | null
+  STATE: string | null
+  CREATED_AT: Date | string | null
+}
+
+type DashboardServiceVehicleMaintenanceRow = {
+  SERVICE_VEHICLE_ID: number | string
+  VEHICLE_NAME: string | null
+  PLATE: string | null
+  PENDING_TOTAL: number | string | null
+  OVERDUE_TOTAL: number | string | null
+  NEXT_SCHEDULED_AT: Date | string | null
+}
+
+type DashboardServiceVehicleUsageRow = {
+  SERVICE_VEHICLE_ID: number | string
+  VEHICLE_NAME: string | null
+  PLATE: string | null
+  TOTAL_USAGES: number | string | null
+  TOTAL_HOURS: number | string | null
+  TOTAL_KILOMETERS: number | string | null
+  LAST_USAGE_AT: Date | string | null
+}
+
+type DashboardServiceVehicleAvailabilityRow = {
+  SERVICE_VEHICLE_ID: number | string
+  VEHICLE_NAME: string | null
+  PLATE: string | null
+  BRAND: string | null
+  MODEL: string | null
+  AVAILABILITY_STATUS: string | null
+  CURRENT_USAGE_COUNT: number | string | null
+  OPEN_MAINTENANCE_COUNT: number | string | null
+}
+
 export type WorkshopDashboardSnapshotResponse = {
   summary: {
     activeCustomers: number
     activeVehicles: number
+    activeServiceVehicles: number
     activeArticles: number
     activeWorkOrders: number
     readyForDelivery: number
     totalDeliveries: number
+    availableServiceVehicles: number
+    pendingServiceVehicleMaintenance: number
+    overdueServiceVehicleMaintenance: number
+    totalServiceVehicleUsageHours: number
+    totalServiceVehicleUsageKilometers: number
   }
   inProgressOrders: Array<{
     WORK_ORDER_ID: number
@@ -82,6 +134,42 @@ export type WorkshopDashboardSnapshotResponse = {
     VEHICLE_LABEL: string
     DELIVERY_DATE: Date | string | null
   }>
+  recentServiceVehicles: Array<{
+    SERVICE_VEHICLE_ID: number
+    NAME: string
+    PLATE: string
+    BRAND: string
+    MODEL: string
+    STATE: string
+    CREATED_AT: Date | string | null
+  }>
+  fleetMaintenanceAlerts: Array<{
+    SERVICE_VEHICLE_ID: number
+    VEHICLE_NAME: string
+    PLATE: string
+    PENDING_TOTAL: number
+    OVERDUE_TOTAL: number
+    NEXT_SCHEDULED_AT: Date | string | null
+  }>
+  fleetUsageSummary: Array<{
+    SERVICE_VEHICLE_ID: number
+    VEHICLE_NAME: string
+    PLATE: string
+    TOTAL_USAGES: number
+    TOTAL_HOURS: number
+    TOTAL_KILOMETERS: number
+    LAST_USAGE_AT: Date | string | null
+  }>
+  fleetAvailability: Array<{
+    SERVICE_VEHICLE_ID: number
+    VEHICLE_NAME: string
+    PLATE: string
+    BRAND: string
+    MODEL: string
+    AVAILABILITY_STATUS: string
+    CURRENT_USAGE_COUNT: number
+    OPEN_MAINTENANCE_COUNT: number
+  }>
 }
 
 export class DashboardService extends BaseService {
@@ -91,7 +179,17 @@ export class DashboardService extends BaseService {
   ): Promise<ApiResponse<WorkshopDashboardSnapshotResponse>> {
     const businessId = await this.resolveBusinessId(sessionInfo.userId)
 
-    const [summaryRows, inProgressOrders, readyForDeliveryOrders, recentMovements, recentDeliveries] =
+    const [
+      summaryRows,
+      inProgressOrders,
+      readyForDeliveryOrders,
+      recentMovements,
+      recentDeliveries,
+      recentServiceVehicles,
+      fleetMaintenanceAlerts,
+      fleetUsageSummary,
+      fleetAvailability,
+    ] =
       await Promise.all([
         queryRunner<DashboardSummaryRow>(
           `
@@ -111,6 +209,12 @@ export class DashboardService extends BaseService {
                 WHERE "v"."BUSINESS_ID" = $1
                   AND "v"."STATE" = 'A'
               ) AS "ACTIVE_VEHICLES",
+              (
+                SELECT COUNT(*)
+                FROM "SERVICE_VEHICLE" AS "sv"
+                WHERE "sv"."BUSINESS_ID" = $1
+                  AND "sv"."STATE" = 'A'
+              ) AS "ACTIVE_SERVICE_VEHICLES",
               (
                 SELECT COUNT(*)
                 FROM "ARTICLE" AS "a"
@@ -140,7 +244,101 @@ export class DashboardService extends BaseService {
                 FROM "DELIVERY_RECEIPT" AS "dr"
                 WHERE "dr"."BUSINESS_ID" = $1
                   AND "dr"."STATE" = 'A'
-              ) AS "TOTAL_DELIVERIES"
+              ) AS "TOTAL_DELIVERIES",
+              (
+                WITH "usage_open" AS (
+                  SELECT
+                    "SERVICE_VEHICLE_ID",
+                    COUNT(*) AS "CURRENT_USAGE_COUNT"
+                  FROM "SERVICE_VEHICLE_USAGE"
+                  WHERE "STATE" = 'A'
+                    AND "STATUS" = 'EN_CURSO'
+                  GROUP BY "SERVICE_VEHICLE_ID"
+                ),
+                "maintenance_open" AS (
+                  SELECT
+                    "SERVICE_VEHICLE_ID",
+                    COUNT(*) FILTER (
+                      WHERE "STATUS" IN ('PENDIENTE', 'EN_PROCESO')
+                    ) AS "OPEN_MAINTENANCE_COUNT",
+                    COUNT(*) FILTER (
+                      WHERE "STATUS" = 'EN_PROCESO'
+                    ) AS "IN_PROGRESS_MAINTENANCE_COUNT"
+                  FROM "SERVICE_VEHICLE_MAINTENANCE"
+                  WHERE "STATE" = 'A'
+                  GROUP BY "SERVICE_VEHICLE_ID"
+                )
+                SELECT COUNT(*) FILTER (
+                  WHERE
+                    "sv"."STATE" = 'A'
+                    AND COALESCE("u"."CURRENT_USAGE_COUNT", 0) = 0
+                    AND COALESCE("m"."IN_PROGRESS_MAINTENANCE_COUNT", 0) = 0
+                )
+                FROM "SERVICE_VEHICLE" AS "sv"
+                LEFT JOIN "usage_open" AS "u"
+                  ON "u"."SERVICE_VEHICLE_ID" = "sv"."SERVICE_VEHICLE_ID"
+                LEFT JOIN "maintenance_open" AS "m"
+                  ON "m"."SERVICE_VEHICLE_ID" = "sv"."SERVICE_VEHICLE_ID"
+                WHERE "sv"."BUSINESS_ID" = $1
+              ) AS "AVAILABLE_SERVICE_VEHICLES",
+              (
+                SELECT COUNT(*)
+                FROM "SERVICE_VEHICLE_MAINTENANCE" AS "m"
+                WHERE "m"."BUSINESS_ID" = $1
+                  AND "m"."STATE" = 'A'
+                  AND "m"."STATUS" IN ('PENDIENTE', 'EN_PROCESO')
+              ) AS "PENDING_SERVICE_VEHICLE_MAINTENANCE",
+              (
+                SELECT COUNT(*)
+                FROM "SERVICE_VEHICLE_MAINTENANCE" AS "m"
+                WHERE "m"."BUSINESS_ID" = $1
+                  AND "m"."STATE" = 'A'
+                  AND "m"."STATUS" IN ('PENDIENTE', 'EN_PROCESO')
+                  AND "m"."SCHEDULED_AT" IS NOT NULL
+                  AND "m"."SCHEDULED_AT" < now()
+              ) AS "OVERDUE_SERVICE_VEHICLE_MAINTENANCE",
+              (
+                SELECT ROUND(
+                  COALESCE(
+                    SUM(
+                      CASE
+                        WHEN "u"."STATUS" = 'FINALIZADA'
+                          AND "u"."ENDED_AT" IS NOT NULL
+                        THEN EXTRACT(EPOCH FROM ("u"."ENDED_AT" - "u"."STARTED_AT")) / 3600
+                        ELSE 0
+                      END
+                    ),
+                    0
+                  )::numeric,
+                  2
+                )
+                FROM "SERVICE_VEHICLE_USAGE" AS "u"
+                WHERE "u"."BUSINESS_ID" = $1
+                  AND "u"."STATE" = 'A'
+                  AND "u"."STATUS" = 'FINALIZADA'
+              ) AS "TOTAL_SERVICE_VEHICLE_USAGE_HOURS",
+              (
+                SELECT ROUND(
+                  COALESCE(
+                    SUM(
+                      CASE
+                        WHEN "u"."STATUS" = 'FINALIZADA'
+                          AND "u"."ODOMETER_START" IS NOT NULL
+                          AND "u"."ODOMETER_END" IS NOT NULL
+                          AND "u"."ODOMETER_END" >= "u"."ODOMETER_START"
+                        THEN "u"."ODOMETER_END" - "u"."ODOMETER_START"
+                        ELSE 0
+                      END
+                    ),
+                    0
+                  )::numeric,
+                  2
+                )
+                FROM "SERVICE_VEHICLE_USAGE" AS "u"
+                WHERE "u"."BUSINESS_ID" = $1
+                  AND "u"."STATE" = 'A'
+                  AND "u"."STATUS" = 'FINALIZADA'
+              ) AS "TOTAL_SERVICE_VEHICLE_USAGE_KILOMETERS"
           `,
           [businessId]
         ),
@@ -231,6 +429,172 @@ export class DashboardService extends BaseService {
           `,
           [businessId]
         ),
+        queryRunner<DashboardServiceVehicleRow>(
+          `
+            SELECT
+              "sv"."SERVICE_VEHICLE_ID" AS "SERVICE_VEHICLE_ID",
+              COALESCE("sv"."NAME", '') AS "NAME",
+              COALESCE("sv"."PLATE", '') AS "PLATE",
+              COALESCE("sv"."BRAND", '') AS "BRAND",
+              COALESCE("sv"."MODEL", '') AS "MODEL",
+              COALESCE("sv"."STATE", '') AS "STATE",
+              "sv"."CREATED_AT" AS "CREATED_AT"
+            FROM "SERVICE_VEHICLE" AS "sv"
+            WHERE "sv"."BUSINESS_ID" = $1
+            ORDER BY "sv"."CREATED_AT" DESC, "sv"."SERVICE_VEHICLE_ID" DESC
+            LIMIT 5
+          `,
+          [businessId]
+        ),
+        queryRunner<DashboardServiceVehicleMaintenanceRow>(
+          `
+            SELECT
+              "sv"."SERVICE_VEHICLE_ID" AS "SERVICE_VEHICLE_ID",
+              COALESCE("sv"."NAME", '') AS "VEHICLE_NAME",
+              COALESCE("sv"."PLATE", '') AS "PLATE",
+              COUNT(*) FILTER (
+                WHERE "m"."STATUS" IN ('PENDIENTE', 'EN_PROCESO')
+              ) AS "PENDING_TOTAL",
+              COUNT(*) FILTER (
+                WHERE "m"."STATUS" IN ('PENDIENTE', 'EN_PROCESO')
+                  AND "m"."SCHEDULED_AT" IS NOT NULL
+                  AND "m"."SCHEDULED_AT" < now()
+              ) AS "OVERDUE_TOTAL",
+              MIN("m"."SCHEDULED_AT") FILTER (
+                WHERE "m"."STATUS" IN ('PENDIENTE', 'EN_PROCESO')
+              ) AS "NEXT_SCHEDULED_AT"
+            FROM "SERVICE_VEHICLE" AS "sv"
+            LEFT JOIN "SERVICE_VEHICLE_MAINTENANCE" AS "m"
+              ON "m"."SERVICE_VEHICLE_ID" = "sv"."SERVICE_VEHICLE_ID"
+             AND "m"."STATE" = 'A'
+            WHERE "sv"."BUSINESS_ID" = $1
+            GROUP BY "sv"."SERVICE_VEHICLE_ID", "sv"."NAME", "sv"."PLATE"
+            HAVING COUNT(*) FILTER (
+              WHERE "m"."STATUS" IN ('PENDIENTE', 'EN_PROCESO')
+            ) > 0
+            ORDER BY
+              COUNT(*) FILTER (
+                WHERE "m"."STATUS" IN ('PENDIENTE', 'EN_PROCESO')
+                  AND "m"."SCHEDULED_AT" IS NOT NULL
+                  AND "m"."SCHEDULED_AT" < now()
+              ) DESC,
+              COUNT(*) FILTER (
+                WHERE "m"."STATUS" IN ('PENDIENTE', 'EN_PROCESO')
+              ) DESC,
+              MIN("m"."SCHEDULED_AT") FILTER (
+                WHERE "m"."STATUS" IN ('PENDIENTE', 'EN_PROCESO')
+              ) ASC NULLS LAST,
+              "sv"."NAME" ASC
+            LIMIT 5
+          `,
+          [businessId]
+        ),
+        queryRunner<DashboardServiceVehicleUsageRow>(
+          `
+            SELECT
+              "sv"."SERVICE_VEHICLE_ID" AS "SERVICE_VEHICLE_ID",
+              COALESCE("sv"."NAME", '') AS "VEHICLE_NAME",
+              COALESCE("sv"."PLATE", '') AS "PLATE",
+              COUNT(*) AS "TOTAL_USAGES",
+              ROUND(
+                COALESCE(
+                  SUM(
+                    CASE
+                      WHEN "u"."ENDED_AT" IS NOT NULL
+                      THEN EXTRACT(EPOCH FROM ("u"."ENDED_AT" - "u"."STARTED_AT")) / 3600
+                      ELSE 0
+                    END
+                  ),
+                  0
+                )::numeric,
+                2
+              ) AS "TOTAL_HOURS",
+              ROUND(
+                COALESCE(
+                  SUM(
+                    CASE
+                      WHEN "u"."ODOMETER_START" IS NOT NULL
+                        AND "u"."ODOMETER_END" IS NOT NULL
+                        AND "u"."ODOMETER_END" >= "u"."ODOMETER_START"
+                      THEN "u"."ODOMETER_END" - "u"."ODOMETER_START"
+                      ELSE 0
+                    END
+                  ),
+                  0
+                )::numeric,
+                2
+              ) AS "TOTAL_KILOMETERS",
+              MAX(COALESCE("u"."ENDED_AT", "u"."STARTED_AT")) AS "LAST_USAGE_AT"
+            FROM "SERVICE_VEHICLE_USAGE" AS "u"
+            INNER JOIN "SERVICE_VEHICLE" AS "sv"
+              ON "sv"."SERVICE_VEHICLE_ID" = "u"."SERVICE_VEHICLE_ID"
+            WHERE "u"."BUSINESS_ID" = $1
+              AND "u"."STATE" = 'A'
+              AND "u"."STATUS" = 'FINALIZADA'
+            GROUP BY "sv"."SERVICE_VEHICLE_ID", "sv"."NAME", "sv"."PLATE"
+            ORDER BY "TOTAL_KILOMETERS" DESC, "TOTAL_HOURS" DESC, "sv"."NAME" ASC
+            LIMIT 5
+          `,
+          [businessId]
+        ),
+        queryRunner<DashboardServiceVehicleAvailabilityRow>(
+          `
+            WITH "usage_open" AS (
+              SELECT
+                "SERVICE_VEHICLE_ID",
+                COUNT(*) AS "CURRENT_USAGE_COUNT"
+              FROM "SERVICE_VEHICLE_USAGE"
+              WHERE "STATE" = 'A'
+                AND "STATUS" = 'EN_CURSO'
+              GROUP BY "SERVICE_VEHICLE_ID"
+            ),
+            "maintenance_open" AS (
+              SELECT
+                "SERVICE_VEHICLE_ID",
+                COUNT(*) FILTER (
+                  WHERE "STATUS" IN ('PENDIENTE', 'EN_PROCESO')
+                ) AS "OPEN_MAINTENANCE_COUNT",
+                COUNT(*) FILTER (
+                  WHERE "STATUS" = 'EN_PROCESO'
+                ) AS "IN_PROGRESS_MAINTENANCE_COUNT"
+              FROM "SERVICE_VEHICLE_MAINTENANCE"
+              WHERE "STATE" = 'A'
+              GROUP BY "SERVICE_VEHICLE_ID"
+            )
+            SELECT
+              "sv"."SERVICE_VEHICLE_ID" AS "SERVICE_VEHICLE_ID",
+              COALESCE("sv"."NAME", '') AS "VEHICLE_NAME",
+              COALESCE("sv"."PLATE", '') AS "PLATE",
+              COALESCE("sv"."BRAND", '') AS "BRAND",
+              COALESCE("sv"."MODEL", '') AS "MODEL",
+              CASE
+                WHEN "sv"."STATE" <> 'A' THEN 'INACTIVO'
+                WHEN COALESCE("u"."CURRENT_USAGE_COUNT", 0) > 0 THEN 'EN_USO'
+                WHEN COALESCE("m"."IN_PROGRESS_MAINTENANCE_COUNT", 0) > 0 THEN 'EN_MANTENIMIENTO'
+                WHEN COALESCE("m"."OPEN_MAINTENANCE_COUNT", 0) > 0 THEN 'DISPONIBLE_CON_PENDIENTE'
+                ELSE 'DISPONIBLE'
+              END AS "AVAILABILITY_STATUS",
+              COALESCE("u"."CURRENT_USAGE_COUNT", 0) AS "CURRENT_USAGE_COUNT",
+              COALESCE("m"."OPEN_MAINTENANCE_COUNT", 0) AS "OPEN_MAINTENANCE_COUNT"
+            FROM "SERVICE_VEHICLE" AS "sv"
+            LEFT JOIN "usage_open" AS "u"
+              ON "u"."SERVICE_VEHICLE_ID" = "sv"."SERVICE_VEHICLE_ID"
+            LEFT JOIN "maintenance_open" AS "m"
+              ON "m"."SERVICE_VEHICLE_ID" = "sv"."SERVICE_VEHICLE_ID"
+            WHERE "sv"."BUSINESS_ID" = $1
+            ORDER BY
+              CASE
+                WHEN "sv"."STATE" <> 'A' THEN 5
+                WHEN COALESCE("u"."CURRENT_USAGE_COUNT", 0) > 0 THEN 4
+                WHEN COALESCE("m"."IN_PROGRESS_MAINTENANCE_COUNT", 0) > 0 THEN 3
+                WHEN COALESCE("m"."OPEN_MAINTENANCE_COUNT", 0) > 0 THEN 2
+                ELSE 1
+              END ASC,
+              "sv"."NAME" ASC
+            LIMIT 5
+          `,
+          [businessId]
+        ),
       ])
 
     const summary = summaryRows[0]
@@ -240,10 +604,28 @@ export class DashboardService extends BaseService {
         summary: {
           activeCustomers: this.toNumber(summary?.ACTIVE_CUSTOMERS),
           activeVehicles: this.toNumber(summary?.ACTIVE_VEHICLES),
+          activeServiceVehicles: this.toNumber(
+            summary?.ACTIVE_SERVICE_VEHICLES
+          ),
           activeArticles: this.toNumber(summary?.ACTIVE_ARTICLES),
           activeWorkOrders: this.toNumber(summary?.ACTIVE_WORK_ORDERS),
           readyForDelivery: this.toNumber(summary?.READY_FOR_DELIVERY),
           totalDeliveries: this.toNumber(summary?.TOTAL_DELIVERIES),
+          availableServiceVehicles: this.toNumber(
+            summary?.AVAILABLE_SERVICE_VEHICLES
+          ),
+          pendingServiceVehicleMaintenance: this.toNumber(
+            summary?.PENDING_SERVICE_VEHICLE_MAINTENANCE
+          ),
+          overdueServiceVehicleMaintenance: this.toNumber(
+            summary?.OVERDUE_SERVICE_VEHICLE_MAINTENANCE
+          ),
+          totalServiceVehicleUsageHours: this.toNumber(
+            summary?.TOTAL_SERVICE_VEHICLE_USAGE_HOURS
+          ),
+          totalServiceVehicleUsageKilometers: this.toNumber(
+            summary?.TOTAL_SERVICE_VEHICLE_USAGE_KILOMETERS
+          ),
         },
         inProgressOrders: inProgressOrders.map((item) => ({
           WORK_ORDER_ID: this.toNumber(item.WORK_ORDER_ID),
@@ -277,6 +659,44 @@ export class DashboardService extends BaseService {
           WORK_ORDER_NO: item.WORK_ORDER_NO || '',
           VEHICLE_LABEL: item.VEHICLE_LABEL || '',
           DELIVERY_DATE: item.DELIVERY_DATE,
+        })),
+        recentServiceVehicles: recentServiceVehicles.map((item) => ({
+          SERVICE_VEHICLE_ID: this.toNumber(item.SERVICE_VEHICLE_ID),
+          NAME: item.NAME || '',
+          PLATE: item.PLATE || '',
+          BRAND: item.BRAND || '',
+          MODEL: item.MODEL || '',
+          STATE: item.STATE || '',
+          CREATED_AT: item.CREATED_AT,
+        })),
+        fleetMaintenanceAlerts: fleetMaintenanceAlerts.map((item) => ({
+          SERVICE_VEHICLE_ID: this.toNumber(item.SERVICE_VEHICLE_ID),
+          VEHICLE_NAME: item.VEHICLE_NAME || '',
+          PLATE: item.PLATE || '',
+          PENDING_TOTAL: this.toNumber(item.PENDING_TOTAL),
+          OVERDUE_TOTAL: this.toNumber(item.OVERDUE_TOTAL),
+          NEXT_SCHEDULED_AT: item.NEXT_SCHEDULED_AT,
+        })),
+        fleetUsageSummary: fleetUsageSummary.map((item) => ({
+          SERVICE_VEHICLE_ID: this.toNumber(item.SERVICE_VEHICLE_ID),
+          VEHICLE_NAME: item.VEHICLE_NAME || '',
+          PLATE: item.PLATE || '',
+          TOTAL_USAGES: this.toNumber(item.TOTAL_USAGES),
+          TOTAL_HOURS: this.toNumber(item.TOTAL_HOURS),
+          TOTAL_KILOMETERS: this.toNumber(item.TOTAL_KILOMETERS),
+          LAST_USAGE_AT: item.LAST_USAGE_AT,
+        })),
+        fleetAvailability: fleetAvailability.map((item) => ({
+          SERVICE_VEHICLE_ID: this.toNumber(item.SERVICE_VEHICLE_ID),
+          VEHICLE_NAME: item.VEHICLE_NAME || '',
+          PLATE: item.PLATE || '',
+          BRAND: item.BRAND || '',
+          MODEL: item.MODEL || '',
+          AVAILABILITY_STATUS: item.AVAILABILITY_STATUS || 'DISPONIBLE',
+          CURRENT_USAGE_COUNT: this.toNumber(item.CURRENT_USAGE_COUNT),
+          OPEN_MAINTENANCE_COUNT: this.toNumber(
+            item.OPEN_MAINTENANCE_COUNT
+          ),
         })),
       },
     })

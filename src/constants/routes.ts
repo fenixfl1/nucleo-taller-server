@@ -23,6 +23,23 @@ export const PATH_VEHICLE = '/vehicle'
 export const PATH_VEHICLE_PAGINATION = '/vehicle/pagination'
 export const PATH_VEHICLE_BY_ID = '/vehicle/:vehicleId'
 
+export const PATH_SERVICE_VEHICLE = '/service_vehicle'
+export const PATH_SERVICE_VEHICLE_PAGINATION = '/service_vehicle/pagination'
+export const PATH_SERVICE_VEHICLE_BY_ID =
+  '/service_vehicle/:serviceVehicleId'
+
+export const PATH_SERVICE_VEHICLE_MAINTENANCE = '/service_vehicle_maintenance'
+export const PATH_SERVICE_VEHICLE_MAINTENANCE_PAGINATION =
+  '/service_vehicle_maintenance/pagination'
+export const PATH_SERVICE_VEHICLE_MAINTENANCE_BY_ID =
+  '/service_vehicle_maintenance/:serviceVehicleMaintenanceId'
+
+export const PATH_SERVICE_VEHICLE_USAGE = '/service_vehicle_usage'
+export const PATH_SERVICE_VEHICLE_USAGE_PAGINATION =
+  '/service_vehicle_usage/pagination'
+export const PATH_SERVICE_VEHICLE_USAGE_BY_ID =
+  '/service_vehicle_usage/:serviceVehicleUsageId'
+
 export const PATH_ARTICLE = '/article'
 export const PATH_ARTICLE_PAGINATION = '/article/pagination'
 export const PATH_ARTICLE_BY_ID = '/article/:articleId'

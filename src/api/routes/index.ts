@@ -7,6 +7,9 @@ import personRouter from './person.routes'
 import staffAccessRouter from './staff-access.routes'
 import customerRouter from './customer.routes'
 import vehicleRouter from './vehicle.routes'
+import serviceVehicleRouter from './service-vehicle.routes'
+import serviceVehicleMaintenanceRouter from './service-vehicle-maintenance.routes'
+import serviceVehicleUsageRouter from './service-vehicle-usage.routes'
 import articleRouter from './article.routes'
 import workOrderRouter from './work-order.routes'
 import inventoryMovementRouter from './inventory-movement.routes'
@@ -25,6 +28,9 @@ const privateRoutes: Router[] = [
   roleRouter,
   customerRouter,
   vehicleRouter,
+  serviceVehicleRouter,
+  serviceVehicleMaintenanceRouter,
+  serviceVehicleUsageRouter,
   articleRouter,
   workOrderRouter,
   inventoryMovementRouter,

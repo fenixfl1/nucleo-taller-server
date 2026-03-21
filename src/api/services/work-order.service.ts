@@ -146,6 +146,7 @@ export type WorkOrderResponse = {
   INTERNAL_NOTES: string
   CUSTOMER_OBSERVATIONS: string
   REQUIRES_DISASSEMBLY: boolean
+  TECHNICIAN_NAMES?: string
   STATE: string
   SERVICE_LINES?: WorkOrderServiceLineResponse[]
   CONSUMED_ITEMS?: WorkOrderConsumedItemResponse[]
@@ -178,6 +179,8 @@ type WorkOrderPaginationRow = {
   INTERNAL_NOTES: string | null
   CUSTOMER_OBSERVATIONS: string | null
   REQUIRES_DISASSEMBLY: boolean | string | number | null
+  TECHNICIAN_NAMES: string | null
+  TECHNICIAN_IDS: string | null
   STATE: string | null
   CREATED_AT: Date | string | null
 }
@@ -550,6 +553,7 @@ export class WorkOrderService extends BaseService {
       'VEHICLE_BRAND',
       'VEHICLE_MODEL',
       'STATUS_NAME',
+      'TECHNICIAN_NAMES',
     ])
     const { whereClause, values } = whereClauseBuilder(
       normalizedConditions as AdvancedCondition<Record<string, unknown>>[]
@@ -579,6 +583,7 @@ export class WorkOrderService extends BaseService {
         "INTERNAL_NOTES",
         "CUSTOMER_OBSERVATIONS",
         "REQUIRES_DISASSEMBLY",
+        "TECHNICIAN_NAMES",
         "STATE",
         "CREATED_AT"
       FROM (
@@ -609,6 +614,23 @@ export class WorkOrderService extends BaseService {
           "wo"."INTERNAL_NOTES" AS "INTERNAL_NOTES",
           "wo"."CUSTOMER_OBSERVATIONS" AS "CUSTOMER_OBSERVATIONS",
           "wo"."REQUIRES_DISASSEMBLY" AS "REQUIRES_DISASSEMBLY",
+          COALESCE((
+            SELECT STRING_AGG(
+              DISTINCT TRIM(CONCAT(COALESCE("tp"."NAME", ''), ' ', COALESCE("tp"."LAST_NAME", ''))),
+              ' | '
+            )
+            FROM "WORK_ORDER_TECHNICIAN" "wot"
+            INNER JOIN "STAFF" "ts"
+              ON "ts"."STAFF_ID" = "wot"."STAFF_ID"
+            INNER JOIN "PERSON" "tp"
+              ON "tp"."PERSON_ID" = "ts"."PERSON_ID"
+            WHERE "wot"."WORK_ORDER_ID" = "wo"."WORK_ORDER_ID"
+          ), '') AS "TECHNICIAN_NAMES",
+          COALESCE((
+            SELECT ',' || STRING_AGG(DISTINCT CAST("wot"."STAFF_ID" AS TEXT), ',') || ','
+            FROM "WORK_ORDER_TECHNICIAN" "wot"
+            WHERE "wot"."WORK_ORDER_ID" = "wo"."WORK_ORDER_ID"
+          ), '') AS "TECHNICIAN_IDS",
           "wo"."STATE" AS "STATE",
           "wo"."CREATED_AT" AS "CREATED_AT"
         FROM "WORK_ORDER" "wo"
@@ -726,6 +748,7 @@ export class WorkOrderService extends BaseService {
       INTERNAL_NOTES: workOrder.INTERNAL_NOTES || '',
       CUSTOMER_OBSERVATIONS: workOrder.CUSTOMER_OBSERVATIONS || '',
       REQUIRES_DISASSEMBLY: Boolean(workOrder.REQUIRES_DISASSEMBLY),
+      TECHNICIAN_NAMES: '',
       STATE: workOrder.STATE || 'A',
       CREATED_AT: workOrder.CREATED_AT,
     }
@@ -764,6 +787,7 @@ export class WorkOrderService extends BaseService {
       INTERNAL_NOTES: workOrder.INTERNAL_NOTES || '',
       CUSTOMER_OBSERVATIONS: workOrder.CUSTOMER_OBSERVATIONS || '',
       REQUIRES_DISASSEMBLY: this.toBoolean(workOrder.REQUIRES_DISASSEMBLY),
+      TECHNICIAN_NAMES: workOrder.TECHNICIAN_NAMES || '',
       STATE: workOrder.STATE || 'A',
       CREATED_AT: workOrder.CREATED_AT ? new Date(workOrder.CREATED_AT) : null,
     }
