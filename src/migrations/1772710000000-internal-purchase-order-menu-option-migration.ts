@@ -30,6 +30,52 @@ export class InternalPurchaseOrderMenuOptionMigration1772710000000
           NULL,
           NULL,
           'A',
+          '0-5',
+          'Inventario',
+          'Inventario y control de stock',
+          '/0-5/inventario',
+          'submenu',
+          NULL,
+          4,
+          NULL,
+          NULL
+        )
+        ON CONFLICT ("MENU_OPTION_ID")
+        DO UPDATE SET
+          "NAME" = EXCLUDED."NAME",
+          "DESCRIPTION" = EXCLUDED."DESCRIPTION",
+          "PATH" = EXCLUDED."PATH",
+          "TYPE" = EXCLUDED."TYPE",
+          "ORDER" = EXCLUDED."ORDER",
+          "PARENT_ID" = EXCLUDED."PARENT_ID",
+          "STATE" = EXCLUDED."STATE"
+      `
+    )
+
+    await queryRunner.query(
+      `
+        INSERT INTO "MENU_OPTION" (
+          "CREATED_AT",
+          "CREATED_BY",
+          "UPDATED_AT",
+          "UPDATED_BY",
+          "STATE",
+          "MENU_OPTION_ID",
+          "NAME",
+          "DESCRIPTION",
+          "PATH",
+          "TYPE",
+          "ICON",
+          "ORDER",
+          "PARENT_ID",
+          "CONTENT"
+        )
+        VALUES (
+          CURRENT_TIMESTAMP,
+          NULL,
+          NULL,
+          NULL,
+          'A',
           '0-5-4',
           'Ordenes internas',
           'Historial de ordenes de compra internas',

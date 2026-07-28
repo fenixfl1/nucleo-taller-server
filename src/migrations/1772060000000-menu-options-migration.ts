@@ -78,6 +78,43 @@ export class MenuOptionsMigration1772060000000 implements MigrationInterface {
       ON DELETE CASCADE
       ON UPDATE NO ACTION
     `).catch(() => undefined)
+
+    await queryRunner.query(`
+      INSERT INTO "MENU_OPTION" (
+        "MENU_OPTION_ID",
+        "NAME",
+        "DESCRIPTION",
+        "PATH",
+        "TYPE",
+        "ICON",
+        "ORDER",
+        "PARENT_ID",
+        "CONTENT",
+        "STATE"
+      )
+      VALUES
+        ('0-1', 'Dashboard', 'Panel principal', '/0-1/dashboard', 'item', NULL, 1, NULL, NULL, 'A'),
+        ('0-4', 'Ordenes de trabajo', 'Gestion de ordenes de trabajo', '/0-4/ordenes-trabajo', 'item', NULL, 2, NULL, NULL, 'A'),
+        ('0-6', 'Entregas', 'Comprobantes y entregas', '/0-6/entregas', 'item', NULL, 3, NULL, NULL, 'A'),
+        ('0-5', 'Inventario', 'Inventario y control de stock', '/0-5/inventario', 'submenu', NULL, 4, NULL, NULL, 'A'),
+        ('0-3', 'Vehiculos', 'Gestion de vehiculos', '/0-3/vehiculos', 'item', NULL, 5, NULL, NULL, 'A'),
+        ('0-2', 'Clientes', 'Gestion de clientes', '/0-2/clientes', 'item', NULL, 6, NULL, NULL, 'A'),
+        ('0-7', 'Reportes', 'Reportes operativos', '/0-7/reportes', 'item', NULL, 7, NULL, NULL, 'A'),
+        ('0-8', 'Configuracion', 'Catalogos y parametros', '/0-8/configuracion', 'submenu', NULL, 8, NULL, NULL, 'A'),
+        ('0-9', 'Seguridad', 'Empleados, roles y bitacora', '/0-9/seguridad', 'submenu', NULL, 9, NULL, NULL, 'A')
+      ON CONFLICT ("MENU_OPTION_ID")
+      DO UPDATE SET
+        "NAME" = EXCLUDED."NAME",
+        "DESCRIPTION" = EXCLUDED."DESCRIPTION",
+        "PATH" = EXCLUDED."PATH",
+        "TYPE" = EXCLUDED."TYPE",
+        "ICON" = EXCLUDED."ICON",
+        "ORDER" = EXCLUDED."ORDER",
+        "PARENT_ID" = EXCLUDED."PARENT_ID",
+        "CONTENT" = EXCLUDED."CONTENT",
+        "STATE" = EXCLUDED."STATE",
+        "UPDATED_AT" = now()
+    `)
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

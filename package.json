@@ -20,6 +20,8 @@
     "migration:fake": "npm run typeorm -- migration:run -d src/data-source.ts --fake",
     "migration:revert": "npm run typeorm -- migration:revert -d src/data-source.ts",
     "backup:create": "node scripts/db-backup.js create",
+    "backup:create:local": "node scripts/db-backup.js create:local",
+    "backup:create:database-url": "node scripts/db-backup.js create:database-url",
     "backup:apply": "node scripts/db-backup.js apply",
     "backup:list": "node scripts/db-backup.js list",
     "seed:admin": "node --require ts-node/register --require tsconfig-paths/register src/seeds/bootstrap-admin.seed.ts",

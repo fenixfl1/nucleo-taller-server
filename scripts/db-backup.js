@@ -89,7 +89,19 @@ function findPostgresBinary(executable) {
   return null
 }
 
-function getDatabaseUrl(env) {
+function getDatabaseUrl(env, { source = 'default' } = {}) {
+  if (source === 'database-url') {
+    if (!env.DATABASE_URL) {
+      fail(`No se encontro la variable DATABASE_URL en ${ENV_FILE}`)
+    }
+
+    return env.DATABASE_URL
+  }
+
+  if (source === 'local') {
+    return getLocalDatabaseUrl(env)
+  }
+
   if (env.BACKUP_DATABASE_URL) return env.BACKUP_DATABASE_URL
 
   if (hasLocalDatabaseConfig(env)) return getLocalDatabaseUrl(env)
@@ -175,9 +187,9 @@ function runCapture(command, args) {
   return result.stdout
 }
 
-function createBackup({ label = 'backup' } = {}) {
+function createBackup({ label = 'backup', source = 'default' } = {}) {
   const env = parseEnvFile(ENV_FILE)
-  const databaseUrl = getDatabaseUrl(env)
+  const databaseUrl = getDatabaseUrl(env, { source })
   const databaseName = getDatabaseName(databaseUrl)
   const pgDump = getBinary(env, 'PG_DUMP_BIN', 'pg_dump')
 
@@ -262,7 +274,8 @@ function assertBackupLooksComplete(backupFile, pgRestore, args) {
       [
         `El backup seleccionado solo contiene tablas internas de migracion: ${backupFile}`,
         'Eso suele pasar cuando se aplica un backup preventivo creado en una base vacia o recien migrada.',
-        'Copia a scripts/backups el .dump generado en la maquina que SI tiene los datos y vuelve a ejecutar npm run backup:apply.',
+        'Crea el backup desde la maquina/base que SI tiene los datos y vuelve a ejecutar npm run backup:apply.',
+        'Si los datos estan en DATABASE_URL, usa npm run backup:create:database-url.',
       ].join('\n'),
     )
   }
@@ -296,10 +309,20 @@ function applyBackup(args) {
     )
   }
 
+  const backupStats = fs.statSync(backupFile)
+  if (backupStats.size === 0) {
+    fail(
+      [
+        `El backup esta vacio: ${backupFile}`,
+        'Ese archivo no se puede restaurar. Genera otro backup desde la maquina que tiene los datos reales con npm run backup:create.',
+      ].join('\n'),
+    )
+  }
+
   assertBackupLooksComplete(backupFile, pgRestore, args)
 
   if (process.env.SKIP_BACKUP_BEFORE_APPLY !== 'true') {
-    createBackup({ label: 'before_apply' })
+    createBackup({ label: 'before_apply', source: 'default' })
   }
 
   console.log(`Limpiando esquema public de '${databaseName}'...`)
@@ -350,6 +373,8 @@ function printHelp() {
   console.log(`
 Uso:
   npm run backup:create
+  npm run backup:create:local
+  npm run backup:create:database-url
   npm run backup:apply
   npm run backup:apply -- --file scripts/backups/archivo.dump
   npm run backup:list
@@ -372,6 +397,10 @@ const [command, ...args] = process.argv.slice(2)
 
 if (command === 'create') {
   createBackup()
+} else if (command === 'create:local') {
+  createBackup({ source: 'local' })
+} else if (command === 'create:database-url') {
+  createBackup({ source: 'database-url', label: 'database_url_backup' })
 } else if (command === 'apply') {
   applyBackup(args)
 } else if (command === 'list') {
