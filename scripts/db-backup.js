@@ -1,0 +1,269 @@
+#!/usr/bin/env node
+
+const { spawnSync } = require('child_process')
+const fs = require('fs')
+const path = require('path')
+
+const ROOT_DIR = path.resolve(__dirname, '..')
+const ENV_FILE = path.join(ROOT_DIR, '.env')
+const BACKUP_DIR = path.join(__dirname, 'backups')
+
+function fail(message) {
+  console.error(message)
+  process.exit(1)
+}
+
+function parseEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) {
+    fail(`No se encontro el archivo .env en ${filePath}`)
+  }
+
+  const values = {}
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/)
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+
+    const index = trimmed.indexOf('=')
+    if (index === -1) continue
+
+    const key = trimmed.slice(0, index).trim()
+    let value = trimmed.slice(index + 1).trim()
+
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1)
+    }
+
+    values[key] = value
+  }
+
+  return values
+}
+
+function getBinary(env, key, executable) {
+  if (process.env[key]) return process.env[key]
+
+  const pgBin = process.env.PG_BIN || env.PG_BIN
+  if (pgBin) {
+    return path.join(pgBin, getExecutableName(executable))
+  }
+
+  const detected = findPostgresBinary(executable)
+  if (detected) return detected
+
+  return executable
+}
+
+function getExecutableName(executable) {
+  const hasExtension = path.extname(executable) !== ''
+  if (hasExtension) return executable
+
+  return process.platform === 'win32' ? `${executable}.exe` : executable
+}
+
+function findPostgresBinary(executable) {
+  const executableName = getExecutableName(executable)
+  const roots =
+    process.platform === 'win32'
+      ? ['C:\\Program Files\\PostgreSQL']
+      : ['/mnt/c/Program Files/PostgreSQL']
+
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue
+
+    const candidates = fs
+      .readdirSync(root, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .sort((a, b) => Number(b) - Number(a))
+      .map(version => path.join(root, version, 'bin', executableName))
+
+    const found = candidates.find(candidate => fs.existsSync(candidate))
+    if (found) return found
+  }
+
+  return null
+}
+
+function getDatabaseUrl(env) {
+  if (env.BACKUP_DATABASE_URL) return env.BACKUP_DATABASE_URL
+
+  if (hasLocalDatabaseConfig(env)) return getLocalDatabaseUrl(env)
+
+  if (env.DATABASE_URL) return env.DATABASE_URL
+
+  fail(
+    `No se encontro una conexion de base de datos. Define DB_HOST/DB_PORT/DB_USERNAME/DB_NAME o BACKUP_DATABASE_URL en ${ENV_FILE}`,
+  )
+}
+
+function hasLocalDatabaseConfig(env) {
+  return ['DB_HOST', 'DB_PORT', 'DB_USERNAME', 'DB_NAME'].every(key => Boolean(env[key]))
+}
+
+function getLocalDatabaseUrl(env) {
+  const required = ['DB_HOST', 'DB_PORT', 'DB_USERNAME', 'DB_NAME']
+  for (const key of required) {
+    if (!env[key]) fail(`No se encontro la variable '${key}' en ${ENV_FILE}`)
+  }
+
+  const username = encodeURIComponent(env.DB_USERNAME)
+  const password = env.DB_PASSWORD ? `:${encodeURIComponent(env.DB_PASSWORD)}` : ''
+  const database = encodeURIComponent(env.DB_NAME)
+  const sslMode = env.DB_SSLMODE ? `?sslmode=${encodeURIComponent(env.DB_SSLMODE)}` : ''
+
+  return `postgresql://${username}${password}@${env.DB_HOST}:${env.DB_PORT}/${database}${sslMode}`
+}
+
+function getDatabaseName(databaseUrl) {
+  try {
+    const parsed = new URL(databaseUrl)
+    const name = decodeURIComponent(parsed.pathname.replace(/^\//, ''))
+    return name || 'database'
+  } catch (_error) {
+    return 'database'
+  }
+}
+
+function timestamp() {
+  const now = new Date()
+  const pad = value => String(value).padStart(2, '0')
+
+  return [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+    '_',
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds()),
+  ].join('')
+}
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    stdio: 'inherit',
+    ...options,
+  })
+
+  if (result.error) {
+    fail(`No se pudo ejecutar '${command}'. Verifica que PostgreSQL este en PATH o define PG_BIN.`)
+  }
+
+  if (result.status !== 0) {
+    process.exit(result.status || 1)
+  }
+}
+
+function createBackup({ label = 'backup' } = {}) {
+  const env = parseEnvFile(ENV_FILE)
+  const databaseUrl = getDatabaseUrl(env)
+  const databaseName = getDatabaseName(databaseUrl)
+  const pgDump = getBinary(env, 'PG_DUMP_BIN', 'pg_dump')
+
+  fs.mkdirSync(BACKUP_DIR, { recursive: true })
+
+  const backupFile = path.join(BACKUP_DIR, `${databaseName}_${label}_${timestamp()}.dump`)
+
+  console.log(`Creando backup completo de '${databaseName}'...`)
+  run(pgDump, [
+    databaseUrl,
+    '--format=custom',
+    '--blobs',
+    '--no-owner',
+    '--no-privileges',
+    '--file',
+    backupFile,
+  ])
+
+  console.log(`Backup creado: ${backupFile}`)
+  return backupFile
+}
+
+function findLatestBackup() {
+  if (!fs.existsSync(BACKUP_DIR)) return null
+
+  const backups = fs
+    .readdirSync(BACKUP_DIR)
+    .filter(file => file.endsWith('.dump'))
+    .map(file => path.join(BACKUP_DIR, file))
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+
+  return backups[0] || null
+}
+
+function getBackupFileFromArgs(args) {
+  const fileFlagIndex = args.findIndex(arg => arg === '--file' || arg === '-f')
+  if (fileFlagIndex !== -1) return args[fileFlagIndex + 1]
+
+  return args.find(arg => !arg.startsWith('-'))
+}
+
+function applyBackup(args) {
+  const env = parseEnvFile(ENV_FILE)
+  const databaseUrl = getDatabaseUrl(env)
+  const databaseName = getDatabaseName(databaseUrl)
+  const psql = getBinary(env, 'PSQL_BIN', 'psql')
+  const pgRestore = getBinary(env, 'PG_RESTORE_BIN', 'pg_restore')
+  const requestedFile = getBackupFileFromArgs(args)
+  const backupFile = requestedFile ? path.resolve(ROOT_DIR, requestedFile) : findLatestBackup()
+
+  if (!backupFile || !fs.existsSync(backupFile)) {
+    fail(
+      requestedFile
+        ? `No existe el backup: ${backupFile}`
+        : `No se encontro ningun backup .dump en ${BACKUP_DIR}`,
+    )
+  }
+
+  if (process.env.SKIP_BACKUP_BEFORE_APPLY !== 'true') {
+    createBackup({ label: 'before_apply' })
+  }
+
+  console.log(`Limpiando esquema public de '${databaseName}'...`)
+  run(psql, [databaseUrl, '-v', 'ON_ERROR_STOP=1', '-c', 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'])
+
+  console.log(`Aplicando backup: ${backupFile}`)
+  run(pgRestore, [
+    '--dbname',
+    databaseUrl,
+    '--no-owner',
+    '--no-privileges',
+    '--verbose',
+    backupFile,
+  ])
+
+  console.log(`Backup aplicado sobre '${databaseName}'.`)
+}
+
+function printHelp() {
+  console.log(`
+Uso:
+  npm run backup:create
+  npm run backup:apply
+  npm run backup:apply -- --file scripts/backups/archivo.dump
+
+Variables opcionales:
+  PG_BIN=/ruta/a/postgresql/bin
+  PG_DUMP_BIN=/ruta/a/pg_dump
+  PG_RESTORE_BIN=/ruta/a/pg_restore
+  PSQL_BIN=/ruta/a/psql
+  BACKUP_DATABASE_URL=postgresql://usuario:password@host:5432/base
+  SKIP_BACKUP_BEFORE_APPLY=true
+`)
+}
+
+const [command, ...args] = process.argv.slice(2)
+
+if (command === 'create') {
+  createBackup()
+} else if (command === 'apply') {
+  applyBackup(args)
+} else {
+  printHelp()
+  process.exit(command ? 1 : 0)
+}

@@ -5,6 +5,7 @@ build/
 tmp/
 temp/
 dist/
+scripts/backups/
 env.*
 .env
 *.xlsm
