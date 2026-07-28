@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'nucleo-taller-server',
+      name: 'server',
       script: 'build/app.cjs',
       cwd: __dirname,
       exec_mode: 'fork',
