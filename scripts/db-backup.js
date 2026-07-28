@@ -159,6 +159,22 @@ function run(command, args, options = {}) {
   }
 }
 
+function runCapture(command, args) {
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+  })
+
+  if (result.error) {
+    fail(`No se pudo ejecutar '${command}'. Verifica que PostgreSQL este en PATH o define PG_BIN.`)
+  }
+
+  if (result.status !== 0) {
+    fail(result.stderr || result.stdout || `El comando '${command}' fallo.`)
+  }
+
+  return result.stdout
+}
+
 function createBackup({ label = 'backup' } = {}) {
   const env = parseEnvFile(ENV_FILE)
   const databaseUrl = getDatabaseUrl(env)
@@ -168,6 +184,7 @@ function createBackup({ label = 'backup' } = {}) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true })
 
   const backupFile = path.join(BACKUP_DIR, `${databaseName}_${label}_${timestamp()}.dump`)
+  const tempBackupFile = `${backupFile}.tmp`
 
   console.log(`Creando backup completo de '${databaseName}'...`)
   run(pgDump, [
@@ -177,11 +194,16 @@ function createBackup({ label = 'backup' } = {}) {
     '--no-owner',
     '--no-privileges',
     '--file',
-    backupFile,
+    tempBackupFile,
   ])
 
+  fs.renameSync(tempBackupFile, backupFile)
   console.log(`Backup creado: ${backupFile}`)
   return backupFile
+}
+
+function isRestorableBackup(file) {
+  return file.endsWith('.dump') && !file.includes('_before_apply_')
 }
 
 function findLatestBackup() {
@@ -189,11 +211,65 @@ function findLatestBackup() {
 
   const backups = fs
     .readdirSync(BACKUP_DIR)
-    .filter(file => file.endsWith('.dump'))
+    .filter(isRestorableBackup)
     .map(file => path.join(BACKUP_DIR, file))
     .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
 
   return backups[0] || null
+}
+
+function getBackupSummary(backupFile, pgRestore) {
+  const list = runCapture(pgRestore, ['--list', backupFile])
+  const lines = list.split(/\r?\n/)
+  const tableNames = lines
+    .map(line => {
+      const match = line.match(/ TABLE (?:DATA )?(\S+) (\S+) /)
+      if (!match) return null
+
+      return match[2]
+    })
+    .filter(Boolean)
+  const uniqueTableNames = [...new Set(tableNames)]
+  const userTableNames = uniqueTableNames.filter(
+    tableName => !['migrations', 'typeorm_metadata'].includes(tableName),
+  )
+
+  return {
+    tableCount: lines.filter(line => / TABLE /.test(line)).length,
+    tableDataCount: lines.filter(line => / TABLE DATA /.test(line)).length,
+    userTableCount: userTableNames.length,
+    userTableNames,
+  }
+}
+
+function assertBackupLooksComplete(backupFile, pgRestore, args) {
+  if (args.includes('--allow-empty')) return
+
+  const summary = getBackupSummary(backupFile, pgRestore)
+
+  if (summary.tableCount === 0) {
+    fail(
+      [
+        `El backup seleccionado no contiene tablas: ${backupFile}`,
+        'Probablemente estas intentando aplicar un backup preventivo o vacio.',
+        'Pasa un backup creado con npm run backup:create usando --file, o usa --allow-empty si realmente quieres restaurar una base vacia.',
+      ].join('\n'),
+    )
+  }
+
+  if (summary.userTableCount === 0 && !args.includes('--allow-migrations-only')) {
+    fail(
+      [
+        `El backup seleccionado solo contiene tablas internas de migracion: ${backupFile}`,
+        'Eso suele pasar cuando se aplica un backup preventivo creado en una base vacia o recien migrada.',
+        'Copia a scripts/backups el .dump generado en la maquina que SI tiene los datos y vuelve a ejecutar npm run backup:apply.',
+      ].join('\n'),
+    )
+  }
+
+  if (summary.tableDataCount === 0) {
+    console.warn(`Advertencia: el backup seleccionado no contiene TABLE DATA: ${backupFile}`)
+  }
 }
 
 function getBackupFileFromArgs(args) {
@@ -216,9 +292,11 @@ function applyBackup(args) {
     fail(
       requestedFile
         ? `No existe el backup: ${backupFile}`
-        : `No se encontro ningun backup .dump en ${BACKUP_DIR}`,
+        : `No se encontro ningun backup aplicable .dump en ${BACKUP_DIR}. Los backups *_before_apply_*.dump se ignoran por seguridad.`,
     )
   }
+
+  assertBackupLooksComplete(backupFile, pgRestore, args)
 
   if (process.env.SKIP_BACKUP_BEFORE_APPLY !== 'true') {
     createBackup({ label: 'before_apply' })
@@ -240,12 +318,41 @@ function applyBackup(args) {
   console.log(`Backup aplicado sobre '${databaseName}'.`)
 }
 
+function listBackups() {
+  if (!fs.existsSync(BACKUP_DIR)) {
+    console.log(`No existe el directorio de backups: ${BACKUP_DIR}`)
+    return
+  }
+
+  const files = fs
+    .readdirSync(BACKUP_DIR)
+    .filter(file => file.endsWith('.dump'))
+    .map(file => {
+      const filePath = path.join(BACKUP_DIR, file)
+      const stats = fs.statSync(filePath)
+      const kind = isRestorableBackup(file) ? 'aplicable' : 'preventivo'
+
+      return { file, stats, kind }
+    })
+    .sort((a, b) => b.stats.mtimeMs - a.stats.mtimeMs)
+
+  if (files.length === 0) {
+    console.log(`No hay backups .dump en ${BACKUP_DIR}`)
+    return
+  }
+
+  for (const { file, stats, kind } of files) {
+    console.log(`${kind.padEnd(10)} ${String(stats.size).padStart(10)} bytes  ${file}`)
+  }
+}
+
 function printHelp() {
   console.log(`
 Uso:
   npm run backup:create
   npm run backup:apply
   npm run backup:apply -- --file scripts/backups/archivo.dump
+  npm run backup:list
 
 Variables opcionales:
   PG_BIN=/ruta/a/postgresql/bin
@@ -254,6 +361,10 @@ Variables opcionales:
   PSQL_BIN=/ruta/a/psql
   BACKUP_DATABASE_URL=postgresql://usuario:password@host:5432/base
   SKIP_BACKUP_BEFORE_APPLY=true
+
+Opciones de apply:
+  --allow-empty
+  --allow-migrations-only
 `)
 }
 
@@ -263,6 +374,8 @@ if (command === 'create') {
   createBackup()
 } else if (command === 'apply') {
   applyBackup(args)
+} else if (command === 'list') {
+  listBackups()
 } else {
   printHelp()
   process.exit(command ? 1 : 0)

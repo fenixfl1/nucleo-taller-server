@@ -21,6 +21,7 @@
     "migration:revert": "npm run typeorm -- migration:revert -d src/data-source.ts",
     "backup:create": "node scripts/db-backup.js create",
     "backup:apply": "node scripts/db-backup.js apply",
+    "backup:list": "node scripts/db-backup.js list",
     "seed:admin": "node --require ts-node/register --require tsconfig-paths/register src/seeds/bootstrap-admin.seed.ts",
     "seed:excel": "node --require ts-node/register --require tsconfig-paths/register src/seeds/import-excel.seed.ts",
     "seed:operational": "node --require ts-node/register --require tsconfig-paths/register src/seeds/operational.seed.ts"
