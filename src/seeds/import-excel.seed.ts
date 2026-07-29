@@ -1,5 +1,6 @@
 import 'reflect-metadata'
 import path from 'path'
+import fs from 'fs'
 import { execFileSync } from 'child_process'
 import { EntityManager } from 'typeorm'
 import { AppDataSource } from '@src/data-source'
@@ -1300,7 +1301,19 @@ async function importWorkOrders(
 
 async function run(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
-  const filePath = path.resolve(args.file || DEFAULT_FILE)
+  const filePath = path.resolve(
+    args.file || process.env.EXCEL_WORKBOOK_PATH || DEFAULT_FILE
+  )
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error(
+      [
+        `Workbook not found: ${filePath}`,
+        'Pasa la ruta del Excel con: npm run seed:excel -- --file "C:\\ruta\\archivo.xlsm"',
+        'O define EXCEL_WORKBOOK_PATH en el archivo .env.',
+      ].join('\n')
+    )
+  }
 
   const workbook = loadWorkbook(filePath)
   await AppDataSource.initialize()

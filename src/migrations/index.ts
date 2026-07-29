@@ -17,3 +17,4 @@ export { WorkOrderServicesPhaseFourMigration1772810000000 } from './177281000000
 export { StaffEmployeeTypeMigration1772820000000 } from './1772820000000-staff-employee-type-migration'
 export { ServiceVehicleModuleMigration1772830000000 } from './1772830000000-service-vehicle-module-migration'
 export { ServiceVehicleOperationsMigration1772840000000 } from './1772840000000-service-vehicle-operations-migration'
+export { UnaccentExtensionMigration1785364032630 } from './1785364032630-unaccent-extension-migration'
